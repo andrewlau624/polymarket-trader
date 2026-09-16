@@ -91,6 +91,7 @@ class UsMarketMaker:
         except Exception as e:
             print(f"programs failed: {type(e).__name__} {e}")
             top = []
+        allp = []
         try:
             allp = self.client.all_programs()
             from collections import Counter
@@ -104,6 +105,36 @@ class UsMarketMaker:
             print("  (use --period <name> to target one)")
         except Exception as e:
             print(f"period summary failed: {type(e).__name__} {e}")
+
+        # candidate probe: respects --period/--category/--min-pool and shows
+        # whether each market has a real (quotable) book
+        try:
+            cand = [p for p in allp if p["period"] != "?"]
+            if self.args.period and self.args.period != "any":
+                cand = [p for p in cand if (p["period"] or "").lower() == self.args.period]
+            if self.args.category and self.args.category != "any":
+                cand = [p for p in cand
+                        if (p.get("category") or "").lower() == self.args.category.lower()]
+            cand = [p for p in cand if p["pool"] >= self.args.min_pool]
+            if self.args.max_target:
+                cand = [p for p in cand if p["target"] <= self.args.max_target]
+            cand.sort(key=lambda r: r["pool"], reverse=True)
+            cand = cand[:20]
+            print(f"\n== candidates (period={self.args.period}, category={self.args.category}, "
+                  f"min_pool=${self.args.min_pool:,.0f}) ==")
+            if not cand:
+                print("  none match those filters")
+            for p in cand:
+                try:
+                    b, a, _ = self.client.book_levels(p["slug"])
+                    depth = f"{len(b):>3}/{len(a):<3}"
+                    ok = "quotable" if (b and a) else "EMPTY"
+                except Exception as e:
+                    depth, ok = "  ?/  ?", type(e).__name__
+                print(f"  book {depth} {ok:<8} pool ${p['pool']:>7,.0f} target={p['target']:>7.0f} "
+                      f"[{p['period']:<6}] {p['slug'][:40]}")
+        except Exception as e:
+            print(f"candidate probe failed: {type(e).__name__} {e}")
 
         print(f"\nbiggest active liquidity programs (top {len(top)}):")
         for p in top:

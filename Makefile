@@ -70,7 +70,7 @@ pull:
 	git pull
 
 check:
-	$(LOAD) $(PY) mm_bot_us.py --check
+	$(LOAD) $(PY) mm_bot_us.py --check --period $(PERIOD) --category $(CATEGORY) --min-pool $(MIN_POOL)
 
 # ---------- paper (safe) -------------------------------------------------
 
