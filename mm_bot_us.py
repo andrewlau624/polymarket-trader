@@ -145,14 +145,50 @@ class UsMarketMaker:
                 })
         rows = [r for r in rows if r["pool"] >= self.args.min_pool and r["target"] > 0]
         if self.args.max_target:
-            # small-target programs are where a tiny order is a meaningful share
+            # small-target programs are where a small order is a meaningful share
             rows = [r for r in rows if r["target"] <= self.args.max_target]
         if self.args.ending_within:
             # periods ending soon settle sooner -> faster payout signal
             rows = [r for r in rows
                     if r["hours_left"] is not None and 0 <= r["hours_left"] <= self.args.ending_within]
         rows.sort(key=lambda r: r["pool"], reverse=True)
-        return rows[: self.args.max_markets]
+        return rows[: self.args.scan]
+
+    def estimate(self, prog):
+        """Share / est $/day for OUR size on this program (book-based)."""
+        slug = prog["slug"]
+        try:
+            ref_bid, ref_ask, bids, asks = self.client.reference(slug)
+        except Exception:
+            return None
+        if ref_bid is None:
+            return None
+        if ref_ask is None or ref_ask - ref_bid <= 0:
+            half = self.args.max_spread / 2.0
+            best_bid = round(max(0.01, ref_bid - half), 3)
+            best_ask = round(min(0.99, ref_bid + half), 3)
+        else:
+            best_bid, best_ask = ref_bid, ref_ask
+        tick = max(self.args.tick, 1e-4)
+        size = int(self.args.size)
+        cb, ob = score_side(bids, best_bid, prog["discount"], prog["target"], tick, best_bid, size)
+        ca, oa = score_side(asks, best_ask, prog["discount"], prog["target"], tick,
+                            best_ask, 0 if self.args.buy_only else size)
+        our, comp = ob + oa, cb + ca
+        share = our / (our + comp) if (our + comp) > 0 else 0.0
+        return {"best_bid": best_bid, "best_ask": best_ask, "bids": bids, "asks": asks,
+                "share": share, "est_daily": share * prog["pool"]}
+
+    def select(self):
+        """Rank candidates by est $/day for our size, not by pool size."""
+        cands = self.programs()
+        scored = []
+        for p in cands:
+            e = self.estimate(p)
+            if e:
+                scored.append({**p, **e})
+        scored.sort(key=lambda r: r["est_daily"], reverse=True)
+        return scored[: self.args.max_markets]
 
     def run_market(self, prog):
         slug = prog["slug"]
@@ -227,10 +263,11 @@ class UsMarketMaker:
 
     def loop(self):
         print(f"Polymarket US MM | mode={self.mode}")
-        progs = self.programs()
-        print(f"selected {len(progs)} active liquidity markets")
+        progs = self.select() if not self.args.check else self.programs()
+        print(f"selected {len(progs)} markets (ranked by est $/day for size {int(self.args.size)})")
         for p in progs[:12]:
-            print(f"  pool ${p['pool']:>8,.0f}  disc={p['discount']} target={p['target']:>8.0f}  {p['slug']}")
+            print(f"  est ${p.get('est_daily', 0):>8,.2f}/day  pool ${p['pool']:>8,.0f}  "
+                  f"target={p['target']:>8.0f}  share={p.get('share', 0):.3f}  {p['slug']}")
         it = 0
         self._last_metric = {}
         while True:
@@ -314,6 +351,8 @@ def main():
     ap.add_argument("--once", action="store_true")
     ap.add_argument("--iterations", type=int, default=0)
     ap.add_argument("--max-markets", type=int, default=10)
+    ap.add_argument("--scan", type=int, default=30,
+                    help="how many candidate programs to book-scan for ranking")
     ap.add_argument("--min-pool", type=float, default=100.0)
     ap.add_argument("--size", type=float, default=20, help="contracts per side")
     ap.add_argument("--tick", type=float, default=0.01)
