@@ -3,10 +3,7 @@
 /etc
 *.env
 data/
-research/mm_ledger.jsonl
-research/mm_state.json
-research/stats.html
-research/mm_timeseries.jsonl
+research/
 __pycache__/
 *.pyc
 .DS_Store

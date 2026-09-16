@@ -123,6 +123,8 @@ class UsMarketMaker:
                     "period": t.get("period"),
                 })
         rows = [r for r in rows if r["pool"] >= self.args.min_pool and r["target"] > 0]
+        if self.args.min_target:
+            rows = [r for r in rows if r["target"] <= self.args.min_target]
         rows.sort(key=lambda r: r["pool"], reverse=True)
         return rows[: self.args.max_markets]
 
@@ -211,6 +213,7 @@ class UsMarketMaker:
                     continue
                 if m and m.get("repriced") is not False:
                     est += m["est_daily"]
+                    _log(self.args.log_path, m)
                     print(f"  {m['slug'][:40]:<40} share={m['share']:.3f} est=${m['est_daily']:.2f}/day")
             real = None
             if self.mode == "live":
@@ -234,6 +237,38 @@ def _oid(resp):
     return None
 
 
+def _log(path, row):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "a") as fh:
+        fh.write(json.dumps(row) + "\n")
+
+
+def report(path):
+    """Summarize a paper run: does competition show up, and what's the share?"""
+    import collections
+    if not os.path.exists(path):
+        print(f"no log yet at {path}")
+        return
+    by = collections.defaultdict(list)
+    with open(path) as fh:
+        for line in fh:
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if r.get("share") is not None:
+                by[r["slug"]].append(r)
+    print(f"{'market':<44}{'n':>4}{'avg_share':>10}{'avg_est$':>10}{'pool$':>8}")
+    tot = 0.0
+    for slug, rows in sorted(by.items(), key=lambda kv: -max(r["est_daily"] for r in kv[1]))[:20]:
+        n = len(rows)
+        ash = sum(r["share"] for r in rows) / n
+        aest = sum(r["est_daily"] for r in rows) / n
+        tot += aest
+        print(f"{slug[:44]:<44}{n:>4}{ash:>10.3f}{aest:>10.2f}{max(r['pool'] for r in rows):>8,.0f}")
+    print(f"\nsum of avg est (top20): ${tot:,.2f}/day  [PROXY: share vs current book]")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Polymarket US liquidity-rewards MM.")
     ap.add_argument("--check", action="store_true", help="preflight then exit")
@@ -246,8 +281,15 @@ def main():
     ap.add_argument("--tick", type=float, default=0.01)
     ap.add_argument("--max-spread", type=float, default=0.05)
     ap.add_argument("--refresh", type=int, default=20)
+    ap.add_argument("--log-path", default="research/us_timeseries.jsonl")
+    ap.add_argument("--report", action="store_true", help="summarize a paper run")
+    ap.add_argument("--min-target", type=float, default=0.0,
+                    help="skip programs whose Target Size exceeds this (0 = any)")
     args = ap.parse_args()
 
+    if args.report:
+        report(args.log_path)
+        return
     if not os.environ.get("POLYMARKET_US_KEY_ID"):
         raise SystemExit("set POLYMARKET_US_KEY_ID and POLYMARKET_US_SECRET_KEY")
 
