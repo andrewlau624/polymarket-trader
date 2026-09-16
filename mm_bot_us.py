@@ -156,11 +156,14 @@ class UsMarketMaker:
                     "discount": _num(t.get("discountFactor"), 0.4) or 0.4,
                     "target": _num(t.get("targetSize")),
                     "period": t.get("period"),
+                    "event_start": m.get("eventStartTime"),
                     "start": t.get("start"),
-                    "end": t.get("end"),
-                    "hours_left": _hours_left(t.get("end")),
-                    "duration_hours": _hours_between(t.get("start"), t.get("end")),
+                    # ongoing programs omit 'end'; fall back to the event start
+                    "end": t.get("end") or m.get("eventStartTime"),
                 })
+                rows[-1]["hours_left"] = _hours_left(rows[-1]["end"])
+                rows[-1]["duration_hours"] = _hours_between(
+                    rows[-1]["start"], rows[-1]["end"])
         rows = [r for r in rows if r["pool"] >= self.args.min_pool and r["target"] > 0]
         if self.args.max_target:
             # small-target programs are where a small order is a meaningful share
