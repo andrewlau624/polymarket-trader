@@ -393,13 +393,15 @@ class UsMarketMaker:
                 except Exception:
                     pass
             n_orders = sum(len(v) for v in self.orders.values())
+            live_est = sum(m.get("est_daily", 0) for m in self._last_metric.values()
+                           if not m.get("error"))
             best = (max(self._last_metric.values(), key=lambda x: x.get("est_daily", 0))
                     if self._last_metric else None)
-            extra = (f"| best share={best['share']:.3f} est=${best['est_daily']:.2f} "
-                     f"({best['slug'][:28]})" if best else "")
+            extra = (f"| best share={best['share']:.3f} ({best['slug'][:26]})"
+                     if best else "")
             errs = sum(1 for m in self._last_metric.values() if m.get("error"))
-            print(f"[iter {it}] quotable est ${est:.2f}/day | orders {n_orders} {extra} "
-                  f"| errors {errs} | earnings {json.dumps(real)[:60] if real else '-'}")
+            print(f"[iter {it}] est ${live_est:,.2f}/day | orders {n_orders} {extra} "
+                  f"| errors {errs} | earnings {json.dumps(real)[:50] if real else '-'}")
             if self.args.once or (self.args.iterations and it >= self.args.iterations):
                 break
             time.sleep(self.args.refresh)
