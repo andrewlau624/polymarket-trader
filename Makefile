@@ -30,7 +30,7 @@ PERIOD     ?= any  # any | early | day_of | live | daily_event  (daily_event pay
 CATEGORY   ?= any  # any | sports | politics | crypto | economics ...
 MAX_PER_PERIOD ?= 0 # cap markets per period (2 = diversify across live/daily)
 ENDING_WITHIN ?= 0 # only periods ending within N hours (faster payout signal)
-RESELECT  ?= 15    # minutes between re-picking markets (live windows end fast)
+RESELECT  ?= 30    # minutes between re-picking markets (live windows end fast)
 SCAN      ?= 200   # candidates to book-scan in `make hunt`
 
 # makes API keys from ENVFILE available to any recipe line

@@ -521,14 +521,34 @@ class UsMarketMaker:
             # instead of quoting a period that already ended
             if (self.args.reselect_min
                     and (time.time() - last_select) / 60.0 >= self.args.reselect_min):
-                fresh = self.select()
-                gone = {p["slug"] for p in progs} - {p["slug"] for p in fresh}
-                for slug in gone:
-                    self._cancel(slug)
-                progs = fresh
+                # STICKY selection: rewards are time-weighted, so never swap a
+                # market that is still quotable — only drop ones that became
+                # unquotable, then fill empty slots with new candidates.
+                keep, dropped = [], 0
+                for p in progs:
+                    e = self.estimate(p)
+                    if e and e.get("quotable") and e.get("meets_target", True):
+                        keep.append({**p, **e})
+                    else:
+                        self._cancel(p["slug"])
+                        dropped += 1
+                have = {p["slug"] for p in keep}
+                slots = self.args.max_markets - len(keep)
+                added = 0
+                if slots > 0:
+                    for p in self.select():
+                        if slots <= 0:
+                            break
+                        if p["slug"] in have:
+                            continue
+                        keep.append(p)
+                        have.add(p["slug"])
+                        slots -= 1
+                        added += 1
+                progs = keep
                 last_select = time.time()
-                print(f"-- reselected {len(progs)} markets "
-                      f"(dropped {len(gone)}) --")
+                print(f"-- reselect: kept {len(keep)-added}, added {added}, "
+                      f"dropped {dropped} --")
             est = 0.0
             for p in progs:
                 try:
