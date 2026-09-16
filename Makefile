@@ -27,6 +27,7 @@ MIN_POOL  ?= 1000
 MAX_TARGET ?= 0    # 0 = any; e.g. 1000 to prefer small-Target-Size programs
 PERIOD     ?= any  # any | early | day_of | live | daily  (daily pays every day)
 CATEGORY   ?= any  # any | sports | politics | crypto | economics ...
+MAX_PER_PERIOD ?= 0 # cap markets per period (2 = diversify across live/daily)
 ENDING_WITHIN ?= 0 # only periods ending within N hours (faster payout signal)
 RESELECT  ?= 15    # minutes between re-picking markets (live windows end fast)
 
@@ -160,7 +161,7 @@ install-services:
 	  'User=$(USER_NAME)' \
 	  'WorkingDirectory=$(APP_DIR)' \
 	  'EnvironmentFile=-$(ENVFILE)' \
-	  'ExecStart=$(PY) -u mm_bot_us.py --live --buy-only --max-markets $(MARKETS) --min-pool $(MIN_POOL) --max-target $(MAX_TARGET) --category $(CATEGORY) --period $(PERIOD) --ending-within $(ENDING_WITHIN) --size $(SIZE) --refresh 30 --reselect-min $(RESELECT)' \
+	  'ExecStart=$(PY) -u mm_bot_us.py --live --buy-only --max-markets $(MARKETS) --min-pool $(MIN_POOL) --max-target $(MAX_TARGET) --category $(CATEGORY) --period $(PERIOD) --max-per-period $(MAX_PER_PERIOD) --ending-within $(ENDING_WITHIN) --size $(SIZE) --refresh 30 --reselect-min $(RESELECT)' \
 	  'Restart=always' \
 	  'RestartSec=20' \
 	  '' \

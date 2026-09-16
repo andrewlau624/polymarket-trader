@@ -242,6 +242,20 @@ class UsMarketMaker:
         scored.sort(key=lambda r: r["est_daily"], reverse=True)
         if skipped:
             print(f"  (skipped {skipped} empty-book markets — can't meet Target Size)")
+        cap = self.args.max_per_period
+        if cap:
+            # spread across periods so a fast-settling one (daily/day_of) always
+            # gets a slot instead of all of them going to the biggest pool
+            out, counts = [], {}
+            for r in scored:
+                per = (r.get("period") or "?").lower()
+                if counts.get(per, 0) >= cap:
+                    continue
+                counts[per] = counts.get(per, 0) + 1
+                out.append(r)
+                if len(out) >= self.args.max_markets:
+                    break
+            return out
         return scored[: self.args.max_markets]
 
     def run_market(self, prog):
@@ -444,6 +458,9 @@ def main():
                          "Important for live/day_of windows that end soon.")
     ap.add_argument("--include-empty", action="store_true",
                     help="also quote markets with empty books (they cannot meet Target Size)")
+    ap.add_argument("--max-per-period", type=int, default=0,
+                    help="cap markets from any one period, so a fast-settling "
+                         "period (daily) still gets a slot (0 = no cap)")
     ap.add_argument("--scan", type=int, default=25,
                     help="how many candidate programs to book-scan for ranking "
                          "(each costs ~2 API calls; keep under the rate limit)")
