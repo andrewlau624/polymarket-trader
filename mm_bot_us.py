@@ -28,6 +28,18 @@ def _num(x, default=0.0):
         return default
 
 
+def _hours_between(a, b):
+    if not a or not b:
+        return None
+    try:
+        from datetime import datetime
+        d1 = datetime.fromisoformat(str(a).replace("Z", "+00:00"))
+        d2 = datetime.fromisoformat(str(b).replace("Z", "+00:00"))
+        return (d2 - d1).total_seconds() / 3600.0
+    except ValueError:
+        return None
+
+
 def _hours_left(iso):
     if not iso:
         return None
@@ -81,10 +93,12 @@ class UsMarketMaker:
             top = []
         print(f"\nbiggest active liquidity programs (top {len(top)}):")
         for p in top:
-            hl = p.get("hours_left")
-            hl_s = f"{hl:6.1f}h" if hl is not None else "   now"
+            hl = _hours_left(p.get("end"))
+            dur = _hours_between(p.get("start"), p.get("end"))
+            hl_s = f"{hl:5.1f}h" if hl is not None else "  now"
+            dur_s = f"{dur/24:5.1f}d" if dur else "   ? "
             print(f"  pool ${p['pool']:>8,.0f} target={p['target']:>7.0f} "
-                  f"[{p.get('period') or '?':<6} ends {hl_s}]  {p['slug'][:40]}")
+                  f"[{p.get('period') or '?':<6} {dur_s} ends {hl_s}]  {p['slug'][:38]}")
 
         if top:
             slug = top[0]["slug"]
@@ -142,8 +156,10 @@ class UsMarketMaker:
                     "discount": _num(t.get("discountFactor"), 0.4) or 0.4,
                     "target": _num(t.get("targetSize")),
                     "period": t.get("period"),
+                    "start": t.get("start"),
                     "end": t.get("end"),
                     "hours_left": _hours_left(t.get("end")),
+                    "duration_hours": _hours_between(t.get("start"), t.get("end")),
                 })
         rows = [r for r in rows if r["pool"] >= self.args.min_pool and r["target"] > 0]
         if self.args.max_target:
@@ -180,8 +196,13 @@ class UsMarketMaker:
                             best_ask, 0 if self.args.buy_only else size)
         our, comp = ob + oa, cb + ca
         share = our / (our + comp) if (our + comp) > 0 else 0.0
+        # the pool covers the WHOLE period, so your run-rate is pool/share spread
+        # over the period length. A $3k pool over a 3h live window beats a $10k
+        # pool over a 10-day early window ($24k/day vs $1k/day).
+        dur_h = prog.get("duration_hours") or 24.0
+        run_rate = share * prog["pool"] / max(dur_h / 24.0, 1e-6)
         return {"best_bid": best_bid, "best_ask": best_ask, "bids": bids, "asks": asks,
-                "share": share, "est_daily": share * prog["pool"]}
+                "share": share, "est_period": share * prog["pool"], "est_daily": run_rate}
 
     def select(self):
         """Rank candidates by est $/day for our size, not by pool size."""
@@ -282,9 +303,11 @@ class UsMarketMaker:
         for p in progs[:12]:
             hl = p.get("hours_left")
             hl_s = f"{hl:5.1f}h" if hl is not None else "  now"
-            print(f"  est ${p.get('est_daily', 0):>8,.2f}/day pool ${p['pool']:>7,.0f} "
-                  f"[{p.get('period') or '?':<6} ends {hl_s}] share={p.get('share', 0):.3f}  "
-                  f"{p['slug'][:38]}")
+            dur = p.get("duration_hours")
+            dur_s = f"{dur/24:5.1f}d" if dur else "   ? "
+            print(f"  ${p.get('est_daily', 0):>9,.2f}/day  pool ${p['pool']:>7,.0f} "
+                  f"[{p.get('period') or '?':<6} {dur_s} ends {hl_s}] "
+                  f"share={p.get('share', 0):.3f}  {p['slug'][:34]}")
         it = 0
         self._last_metric = {}
         while True:
