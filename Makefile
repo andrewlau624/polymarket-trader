@@ -36,7 +36,7 @@ SCAN      ?= 200   # candidates to book-scan in `make hunt`
 LOAD = set -a; . $(ENVFILE) 2>/dev/null || true; set +a;
 
 .DEFAULT_GOAL := help
-.PHONY: help setup pull check hunt paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: help setup pull check hunt account paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -45,6 +45,7 @@ help:
 	@echo "  make setup           install python deps into .venv"
 	@echo "  make pull            git pull latest code"
 	@echo "  make check           verify keys, show balance + wallet programs"
+	@echo "  make account         your cash, open orders, positions, real rewards"
 	@echo "  make hunt            scan EVERY program, list quotable markets"
 	@echo "                       e.g.  make hunt PERIOD=daily  |  make hunt MIN_POOL=0"
 	@echo ""
@@ -74,6 +75,9 @@ pull:
 
 check:
 	$(LOAD) $(PY) mm_bot_us.py --check --period $(PERIOD) --category $(CATEGORY) --min-pool $(MIN_POOL)
+
+account:
+	$(LOAD) $(PY) mm_bot_us.py --account
 
 hunt:
 	$(LOAD) $(PY) mm_bot_us.py --hunt --period $(PERIOD) --category $(CATEGORY) --min-pool $(MIN_POOL) --max-target $(MAX_TARGET) --scan $(SCAN)

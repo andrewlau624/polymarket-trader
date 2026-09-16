@@ -262,6 +262,54 @@ class UsMarketMaker:
                 "raw_bid": raw_b, "raw_ask": raw_a, "meets_target": meets,
                 "quotable": bool(bids and asks)}
 
+    def account(self):
+        """Plain-English view of your live account: cash, orders, positions, earnings."""
+        c = self.client
+        print("== ACCOUNT ==")
+        try:
+            for b in (c.balances().get("balances") or []):
+                print(f"  cash ${_num(b.get('currentBalance')):,.2f}   "
+                      f"buying power ${_num(b.get('buyingPower')):,.2f}   "
+                      f"reserved ${_num(b.get('balanceReservation')):,.2f}   "
+                      f"in positions ${_num(b.get('assetNotional')):,.2f}")
+        except Exception as e:
+            print(f"  balances failed: {type(e).__name__} {e}")
+
+        print("\n== OPEN ORDERS ==")
+        try:
+            orders = c.open_orders()
+            if not orders:
+                print("  none")
+            for o in orders:
+                slug = o.get("marketSlug") or o.get("slug") or "?"
+                side = o.get("intent") or o.get("side") or "?"
+                price = o.get("price")
+                price = price.get("value") if isinstance(price, dict) else price
+                qty = o.get("quantity") or o.get("remainingQuantity") or o.get("qty")
+                oid = (o.get("orderId") or o.get("id") or "")[:10]
+                print(f"  {str(side):<22} {str(qty):>6} @ {price}  {slug[:42]}  {oid}")
+            print(f"  total: {len(orders)}")
+        except Exception as e:
+            print(f"  orders failed: {type(e).__name__} {e}")
+
+        print("\n== POSITIONS ==")
+        try:
+            pos = c.positions()
+            if not pos:
+                print("  none (nothing filled yet)")
+            else:
+                for k, v in list(pos.items())[:20]:
+                    print(f"  {k[:44]}  {json.dumps(v)[:140]}")
+        except Exception as e:
+            print(f"  positions failed: {type(e).__name__} {e}")
+
+        print("\n== REWARDS EARNED (real) ==")
+        try:
+            print(f"  {json.dumps(c.earnings())[:400]}")
+        except Exception as e:
+            print(f"  earnings failed: {type(e).__name__} {e}")
+        print("\nNOTE: rewards land after the period ends (<=5 business days) + <=2 to credit.")
+
     def hunt(self):
         """Book-scan every program matching the filters; report quotable ones."""
         from concurrent.futures import ThreadPoolExecutor
@@ -559,6 +607,8 @@ def main():
     ap.add_argument("--refresh", type=int, default=20)
     ap.add_argument("--log-path", default="research/us_timeseries.jsonl")
     ap.add_argument("--report", action="store_true", help="summarize a paper run")
+    ap.add_argument("--account", action="store_true",
+                    help="show cash, open orders, positions, real earnings")
     ap.add_argument("--hunt", action="store_true",
                     help="book-scan every matching program and list quotable markets")
     ap.add_argument("--max-target", type=float, default=0.0,
@@ -580,6 +630,11 @@ def main():
 
     if args.report:
         report(args.log_path)
+        return
+    if args.account:
+        if not os.environ.get("POLYMARKET_US_KEY_ID"):
+            raise SystemExit("set POLYMARKET_US_KEY_ID / POLYMARKET_US_SECRET_KEY")
+        UsMarketMaker(args).account()
         return
     if args.hunt:
         if not os.environ.get("POLYMARKET_US_KEY_ID"):
