@@ -25,7 +25,7 @@ SIZE      ?= 5
 MARKETS   ?= 2
 MIN_POOL  ?= 1000
 MAX_TARGET ?= 0    # 0 = any; e.g. 1000 to prefer small-Target-Size programs
-PERIOD     ?= any  # any | early | day_of | live | daily  (daily pays every day)
+PERIOD     ?= any  # any | early | day_of | live | daily_event  (daily_event pays daily)
 CATEGORY   ?= any  # any | sports | politics | crypto | economics ...
 MAX_PER_PERIOD ?= 0 # cap markets per period (2 = diversify across live/daily)
 ENDING_WITHIN ?= 0 # only periods ending within N hours (faster payout signal)

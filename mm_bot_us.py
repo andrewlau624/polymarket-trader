@@ -556,9 +556,11 @@ def main():
     ap.add_argument("--category", default="any",
                     help="only this category (e.g. sports, politics, crypto, economics)")
     ap.add_argument("--period", default="any",
-                    choices=["any", "early", "day_of", "live", "daily"],
+                    choices=["any", "early", "day_of", "live", "daily_event", "daily"],
                     help="only this reward time period (daily pays every day)")
     args = ap.parse_args()
+    if args.period == "daily":      # the API label is "daily_event"
+        args.period = "daily_event"
 
     if args.report:
         report(args.log_path)
