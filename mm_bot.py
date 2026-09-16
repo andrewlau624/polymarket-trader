@@ -126,6 +126,11 @@ class MarketMaker:
         # and ask the midpoint is noise and resting orders are a gift to takers
         if any(not (b and a) for b, a in books.values()):
             return None
+        # refuse wide books: the mid is fiction and quoting mid-d puts us above
+        # the real bid, so we fill and instantly mark a loss on liquidation
+        cap = self.args.max_book_spread_cents / 100.0
+        if any((a[0][0] - b[0][0]) > cap for b, a in books.values()):
+            return None
         mids = {t: best_mid(*books[t]) for t in books}
         if any(v is None for v in mids.values()):
             return None
@@ -162,17 +167,18 @@ class MarketMaker:
             skew = skew_k * d * (held / max_inv) if max_inv else 0.0
             qmid = mid - skew
             bids, asks = books[tid]
+            best_bid, best_ask = bids[0][0], asks[0][0]
             comp += sum(rewards.book_scores(bids, asks, mid, ms, min_size))
+            band = ms / 100.0
 
-            bid_px = round(qmid - d, 3)
-            bid_px = min(bid_px, round(qmid - tick, 3))
-            if 0 < bid_px < 1:
+            # never bid above the real bid; stay inside the reward band
+            bid_px = min(round(qmid - d, 3), round(best_bid - tick, 3))
+            if 0 < bid_px < 1 and bid_px >= qmid - band:
                 self._quote(cond, tid, "buy", bid_px, size)
                 our += rewards.our_score(size, bid_px, mid, ms)
             if held > 0:
-                ask_px = round(qmid + d, 3)
-                ask_px = max(ask_px, round(qmid + tick, 3))
-                if 0 < ask_px < 1:
+                ask_px = max(round(qmid + d, 3), round(best_ask + tick, 3))
+                if 0 < ask_px < 1 and ask_px <= qmid + band:
                     self._quote(cond, tid, "sell", ask_px, min(size, held))
                     our += rewards.our_score(min(size, held), ask_px, mid, ms)
 
@@ -223,6 +229,7 @@ class MarketMaker:
             size_mult=self.args.size_mult,
             spread_frac=self.args.spread_frac,
             workers=self.args.scan_workers,
+            spread_cap_cents=self.args.max_book_spread_cents,
             log=print,
         )
         picked = [m for m in picked if m["est_daily_usd"] >= self.args.min_est_daily]
@@ -480,6 +487,8 @@ def main():
     ap.add_argument("--scan-workers", type=int, default=20)
     ap.add_argument("--min-est-daily", type=float, default=1.0,
                     help="skip markets whose estimated reward is below this $/day")
+    ap.add_argument("--max-book-spread-cents", type=float, default=5.0,
+                    help="skip markets whose book is wider than this (mid is fiction)")
     ap.add_argument("--reprice-cents", type=float, default=None,
                     help="only re-quote when mid moves this many cents")
     ap.add_argument("--inventory-skew", type=float, default=None,
