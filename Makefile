@@ -22,6 +22,7 @@ USER_NAME ?= $(shell id -un)
 
 # params (override on the command line)
 SIZE      ?= 5
+NOTIONAL  ?= 0     # $ per order (overrides SIZE); e.g. 5 = ~$5/order
 MARKETS   ?= 2
 MIN_POOL  ?= 1000
 MAX_TARGET ?= 0    # 0 = any; e.g. 1000 to prefer small-Target-Size programs
@@ -175,7 +176,7 @@ install-services:
 	  'User=$(USER_NAME)' \
 	  'WorkingDirectory=$(APP_DIR)' \
 	  'EnvironmentFile=-$(ENVFILE)' \
-	  'ExecStart=$(PY) -u mm_bot_us.py --live --buy-only --max-markets $(MARKETS) --min-pool $(MIN_POOL) --max-target $(MAX_TARGET) --category $(CATEGORY) --period $(PERIOD) --max-per-period $(MAX_PER_PERIOD) --ending-within $(ENDING_WITHIN) --size $(SIZE) --refresh 30 --reselect-min $(RESELECT)' \
+	  'ExecStart=$(PY) -u mm_bot_us.py --live --buy-only --max-markets $(MARKETS) --min-pool $(MIN_POOL) --max-target $(MAX_TARGET) --category $(CATEGORY) --period $(PERIOD) --max-per-period $(MAX_PER_PERIOD) --ending-within $(ENDING_WITHIN) --size $(SIZE) --notional $(NOTIONAL) --refresh 30 --reselect-min $(RESELECT)' \
 	  'Restart=always' \
 	  'RestartSec=20' \
 	  '' \

@@ -224,6 +224,11 @@ class UsMarketMaker:
         rows.sort(key=lambda r: r["pool"], reverse=True)
         return rows[: self.args.scan]
 
+    def _size_for(self, price):
+        if self.args.notional:
+            return max(1, int(self.args.notional / max(price or 0.5, 0.01)))
+        return int(self.args.size)
+
     def estimate(self, prog):
         """Share / est $/day for OUR size on this program (book-based)."""
         slug = prog["slug"]
@@ -240,7 +245,7 @@ class UsMarketMaker:
         else:
             best_bid, best_ask = ref_bid, ref_ask
         tick = max(self.args.tick, 1e-4)
-        size = int(self.args.size)
+        size = self._size_for(best_bid)
         cb, ob = score_side(bids, best_bid, prog["discount"], prog["target"], tick, best_bid, size)
         ca, oa = score_side(asks, best_ask, prog["discount"], prog["target"], tick,
                             best_ask, 0 if self.args.buy_only else size)
@@ -417,7 +422,7 @@ class UsMarketMaker:
         else:
             best_bid, best_ask = ref_bid, ref_ask
         tick = max(self.args.tick, 1e-4)
-        size = int(self.args.size)
+        size = self._size_for(best_bid)
         target = prog["target"]
         if size < target and not bids and not asks:
             # nobody else is quoting and we can't meet Target Size ourselves
@@ -629,6 +634,8 @@ def main():
                          "(each costs ~2 API calls; keep under the rate limit)")
     ap.add_argument("--min-pool", type=float, default=100.0)
     ap.add_argument("--size", type=float, default=20, help="contracts per side")
+    ap.add_argument("--notional", type=float, default=0.0,
+                    help="dollar notional per order (overrides --size), e.g. 5 = ~$5/order")
     ap.add_argument("--tick", type=float, default=0.01)
     ap.add_argument("--max-spread", type=float, default=0.05)
     ap.add_argument("--refresh", type=int, default=20)
