@@ -135,6 +135,7 @@ class UsClient:
                     "discount": float(t.get("discountFactor") or 0.4) or 0.4,
                     "target": float(t.get("targetSize") or 0),
                     "period": t.get("period"),
+                    "end": t.get("end"),
                 })
         rows.sort(key=lambda r: r["pool"], reverse=True)
         return rows[:n]

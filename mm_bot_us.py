@@ -81,8 +81,10 @@ class UsMarketMaker:
             top = []
         print(f"\nbiggest active liquidity programs (top {len(top)}):")
         for p in top:
-            print(f"  pool ${p['pool']:>8,.0f}  disc={p['discount']} target={p['target']:>7.0f}  "
-                  f"{p['slug']}  [{p['category']}]")
+            hl = p.get("hours_left")
+            hl_s = f"{hl:6.1f}h" if hl is not None else "   now"
+            print(f"  pool ${p['pool']:>8,.0f} target={p['target']:>7.0f} "
+                  f"[{p.get('period') or '?':<6} ends {hl_s}]  {p['slug'][:40]}")
 
         if top:
             slug = top[0]["slug"]
@@ -147,6 +149,8 @@ class UsMarketMaker:
         if self.args.max_target:
             # small-target programs are where a small order is a meaningful share
             rows = [r for r in rows if r["target"] <= self.args.max_target]
+        if self.args.period and self.args.period != "any":
+            rows = [r for r in rows if (r["period"] or "").lower() == self.args.period]
         if self.args.ending_within:
             # periods ending soon settle sooner -> faster payout signal
             rows = [r for r in rows
@@ -276,8 +280,11 @@ class UsMarketMaker:
         progs = self.select() if not self.args.check else self.programs()
         print(f"selected {len(progs)} markets (ranked by est $/day for size {int(self.args.size)})")
         for p in progs[:12]:
-            print(f"  est ${p.get('est_daily', 0):>8,.2f}/day  pool ${p['pool']:>8,.0f}  "
-                  f"target={p['target']:>8.0f}  share={p.get('share', 0):.3f}  {p['slug']}")
+            hl = p.get("hours_left")
+            hl_s = f"{hl:5.1f}h" if hl is not None else "  now"
+            print(f"  est ${p.get('est_daily', 0):>8,.2f}/day pool ${p['pool']:>7,.0f} "
+                  f"[{p.get('period') or '?':<6} ends {hl_s}] share={p.get('share', 0):.3f}  "
+                  f"{p['slug'][:38]}")
         it = 0
         self._last_metric = {}
         while True:
@@ -383,6 +390,9 @@ def main():
     ap.add_argument("--ending-within", type=float, default=0.0,
                     help="only programs whose time period ends within N hours "
                          "(faster payout signal; 0 = any)")
+    ap.add_argument("--period", default="any",
+                    choices=["any", "early", "day_of", "live", "daily"],
+                    help="only this reward time period (daily pays every day)")
     args = ap.parse_args()
 
     if args.report:
