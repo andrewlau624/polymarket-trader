@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 import requests
 import yaml
 
-from src.pm import clob, rewards, stats
+from src.pm import clob, rewards, sizing, stats
 from src.pm.execution import ClobBroker, PaperBroker
 
 
@@ -58,6 +58,14 @@ class MarketMaker:
         self.reward_accrued = 0.0
         self._n_fills_logged = 0
         self.selected = []
+        # accounting / edge measurement
+        self.avg_cost = {}
+        self.realized = 0.0
+        self.last_book = {}      # token_id -> (best_bid, best_ask)
+        self.pending_fills = []  # (token, side, price, ts) awaiting drift check
+        self.adverse = []
+        self.buys = 0
+        self.sells = 0
         if args.live:
             self.broker = ClobBroker()
             self.mode = "live"
@@ -107,6 +115,9 @@ class MarketMaker:
                 clob._levels(b.get("bids"), "bid"),
                 clob._levels(b.get("asks"), "ask"),
             )
+
+        for tid, (b, a) in books.items():
+            self.last_book[tid] = (b[0][0] if b else None, a[0][0] if a else None)
 
         # require a genuine two-sided book on both tokens: without a real bid
         # and ask the midpoint is noise and resting orders are a gift to takers
@@ -237,6 +248,9 @@ class MarketMaker:
               f"| bankroll ${self.bankroll:.2f}")
         markets = self.select_markets()
         self.selected = markets
+        if self.args.sizing_report:
+            self._sizing_report(markets)
+            return
 
         it = 0
         last_ts = time.time()
@@ -265,6 +279,7 @@ class MarketMaker:
             if self.mode == "paper":
                 self._paper_fills(markets)
                 self._log_new_fills()
+                self._update_adverse()
 
             now = time.time()
             self.reward_accrued += total_est * max(now - last_ts, 0) / 86400.0
@@ -273,20 +288,88 @@ class MarketMaker:
             state = stats.build_state(
                 self.broker, markets, self.mode, self.bankroll, self.start_time,
                 total_est, self.reward_accrued, self.last_mid, markets,
+                last_book=self.last_book, avg_cost=self.avg_cost,
+                realized=self.realized, adverse=self.adverse,
+                buys=self.buys, sells=self.sells,
             )
             stats.write(os.path.dirname(self.args.log_path) or ".", state)
+            log(self.args.timeseries_path, {
+                "ts": state["updated"], "uptime_min": state["uptime_min"],
+                "pnl_mid": state["pnl"], "pnl_liq": state["pnl_conservative"],
+                "realized": state["realized"], "unrealized": state["unrealized"],
+                "rewards_accrued": state["est_rewards_accrued"],
+                "fills": state["fills"], "buys": state["buys"], "sells": state["sells"],
+                "adverse_mean": state["adverse_mean"], "open_orders": state["open_orders"],
+            })
             print(f"[iter {it}] est_rewards=${total_est:.2f}/day repriced={repriced} "
-                  f"open={state['open_orders']} fills={state['fills']} "
-                  f"equity=${state['equity']:.2f} pnl=${state['pnl']:+.2f}")
+                  f"open={state['open_orders']} fills={state['buys']}B/{state['sells']}S "
+                  f"pnl_mid=${state['pnl']:+.2f} pnl_liq=${state['pnl_conservative']:+.2f} "
+                  f"rewards=${state['est_rewards_accrued']:.2f} adv={state['adverse_mean']:+.4f}")
             if self.args.once or (self.args.iterations and it >= self.args.iterations):
                 break
             time.sleep(self.args.refresh)
+
+    def _sizing_report(self, markets):
+        """Show per-order size/notional for several bankrolls, bounded by depth."""
+        books = {}
+        for m in markets:
+            for tok in m["tokens"][:2]:
+                try:
+                    b = clob.get_book(tok["token_id"])
+                except Exception:
+                    continue
+                books[tok["token_id"]] = (
+                    clob._levels(b.get("bids"), "bid"),
+                    clob._levels(b.get("asks"), "ask"),
+                )
+        for bankroll in (self.bankroll, 1_000.0, 1_000_000.0):
+            budget, rows = sizing.plan(
+                bankroll, markets, books, util=self.args.util,
+                size_mult=self.args.size_mult,
+            )
+            deployed = sum(r["notional"] for r in rows)
+            print(f"\n=== bankroll ${bankroll:,.0f} | per-order budget ${budget:,.0f} "
+                  f"| deployed ${deployed:,.0f} ({len(rows)} orders) ===")
+            print(f"{'market':<40}{'out':<7}{'mid':>6}{'depth':>9}{'min':>6}"
+                  f"{'size':>9}{'notional':>10}  binds")
+            for r in rows:
+                print(f"{r['market']:<40}{str(r['outcome'])[:6]:<7}{r['mid']:>6.3f}"
+                      f"{r['book_depth']:>9.0f}{r['min_size']:>6.0f}{r['size']:>9.0f}"
+                      f"{r['notional']:>10.0f}  {r['binding']}")
 
     def _log_new_fills(self):
         fills = getattr(self.broker, "fills", []) or []
         for f in fills[self._n_fills_logged:]:
             log(self.args.log_path, {"type": "fill", **f})
+            tok = f["token_id"]
+            side = f["side"]
+            px = float(f["price"])
+            sz = float(f["size"])
+            pos = self.broker.positions.get(tok, 0.0)
+            if side == "buy":
+                old = self.avg_cost.get(tok, 0.0)
+                self.avg_cost[tok] = (old * max(pos - sz, 0.0) + px * sz) / pos if pos > 0 else px
+                self.buys += 1
+            else:
+                self.realized += (px - self.avg_cost.get(tok, 0.0)) * sz
+                self.sells += 1
+            self.pending_fills.append((tok, side, px, time.time()))
         self._n_fills_logged = len(fills)
+
+    def _update_adverse(self, window=900.0):
+        """Measure price drift 15 min after each fill: the real MM cost."""
+        now = time.time()
+        keep = []
+        for tok, side, px, ts in self.pending_fills:
+            if now - ts < window:
+                keep.append((tok, side, px, ts))
+                continue
+            mid = self.last_mid.get(tok)
+            if mid is None:
+                continue
+            signed = 1.0 if side == "buy" else -1.0
+            self.adverse.append(signed * (mid - px))
+        self.pending_fills = keep
 
         if self.mode == "live":
             self.broker.cancel_all()
@@ -349,6 +432,10 @@ def main():
                     help="starting paper capital shown on the stats page")
     ap.add_argument("--serve-stats", type=int, default=0, metavar="PORT",
                     help="serve the stats page on 127.0.0.1:PORT (access via ssh -L)")
+    ap.add_argument("--sizing-report", action="store_true",
+                    help="print per-trade sizing for $1k/$1M and exit")
+    ap.add_argument("--util", type=float, default=0.8, help="fraction of bankroll deployed")
+    ap.add_argument("--timeseries-path", default="research/mm_timeseries.jsonl")
     ap.add_argument("--log-path", default=None)
     args = ap.parse_args()
 

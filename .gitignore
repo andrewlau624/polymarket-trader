@@ -4,6 +4,7 @@ data/
 research/mm_ledger.jsonl
 research/mm_state.json
 research/stats.html
+research/mm_timeseries.jsonl
 __pycache__/
 *.pyc
 .DS_Store

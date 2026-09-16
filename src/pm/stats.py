@@ -12,10 +12,17 @@ from datetime import datetime, timezone
 
 
 def build_state(broker, markets, mode, bankroll, start_time,
-                est_rewards_per_day, reward_accrued, last_mid, selected):
+                est_rewards_per_day, reward_accrued, last_mid, selected,
+                last_book=None, avg_cost=None, realized=0.0, adverse=None,
+                buys=0, sells=0):
+    last_book = last_book or {}
+    avg_cost = avg_cost or {}
+    adverse = adverse or []
     cash = broker.cash
     positions = []
     inv_value = 0.0
+    inv_liq = 0.0        # what you'd actually get selling at the bid
+    basis = 0.0
     for m in markets:
         for tok in m["tokens"][:2]:
             tid = tok["token_id"]
@@ -23,20 +30,30 @@ def build_state(broker, markets, mode, bankroll, start_time,
             if abs(size) < 1e-9:
                 continue
             mid = last_mid.get(tid)
+            bid, ask = last_book.get(tid, (None, None))
+            cost = avg_cost.get(tid, 0.0)
             val = size * (mid or 0.0)
+            # conservative: longs valued at the bid, shorts at the ask
+            mark = (bid if size > 0 else ask) if (bid if size > 0 else ask) else mid
             inv_value += val
+            inv_liq += size * (mark or 0.0)
+            basis += size * cost
             positions.append(
                 {
                     "question": m["question"][:60],
                     "outcome": tok.get("outcome"),
                     "size": size,
+                    "avg_cost": cost,
                     "mid": mid,
                     "value": val,
+                    "pnl": val - size * cost,
                 }
             )
     equity = bankroll + cash + inv_value
-    pnl = equity - bankroll
+    equity_liq = bankroll + cash + inv_liq
+    unrealized = inv_value - basis
     n_fills = len(getattr(broker, "fills", []) or [])
+    n = buys + sells
     return {
         "mode": mode,
         "updated": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
@@ -45,9 +62,18 @@ def build_state(broker, markets, mode, bankroll, start_time,
         "cash": cash,
         "inventory_value": inv_value,
         "equity": equity,
-        "pnl": pnl,
-        "pnl_pct": (pnl / bankroll * 100.0) if bankroll else 0.0,
+        "equity_conservative": equity_liq,
+        "pnl": equity - bankroll,
+        "pnl_pct": ((equity - bankroll) / bankroll * 100.0) if bankroll else 0.0,
+        "realized": realized,
+        "unrealized": unrealized,
+        "pnl_conservative": equity_liq - bankroll,
         "fills": n_fills,
+        "buys": buys,
+        "sells": sells,
+        "pct_buys": (buys / n) if n else 0.0,
+        "adverse_mean": (sum(adverse) / len(adverse)) if adverse else 0.0,
+        "adverse_n": len(adverse),
         "open_orders": broker.snapshot().get("n_open", 0),
         "est_rewards_per_day": est_rewards_per_day,
         "est_rewards_accrued": reward_accrued,
@@ -67,11 +93,13 @@ def render_html(state):
     s = state
     pos_rows = "".join(
         f"<tr><td>{p['question']}</td><td>{p.get('outcome') or ''}</td>"
-        f"<td class='num'>{p['size']:.0f}</td><td class='num'>"
-        f"{(p['mid'] if p['mid'] is not None else 0):.3f}</td>"
-        f"<td class='num'>{p['value']:+.2f}</td></tr>"
+        f"<td class='num'>{p['size']:.0f}</td>"
+        f"<td class='num'>{p['avg_cost']:.3f}</td>"
+        f"<td class='num'>{(p['mid'] if p['mid'] is not None else 0):.3f}</td>"
+        f"<td class='num'>{p['value']:+.2f}</td>"
+        f"<td class='num {_row_class(p['pnl'])}'>{p['pnl']:+.2f}</td></tr>"
         for p in s["positions"]
-    ) or "<tr><td colspan=5 class='muted'>no inventory</td></tr>"
+    ) or "<tr><td colspan=7 class='muted'>no inventory</td></tr>"
     mkt_rows = "".join(
         f"<tr><td>{m['question']}</td><td class='num'>{m['daily_rate']:.0f}</td></tr>"
         for m in s["markets"]
@@ -97,17 +125,20 @@ def render_html(state):
 <div class="muted">updated {s['updated']} &middot; uptime {s['uptime_min']:.0f} min</div>
 <div class="grid">
  <div class="card"><div class="k">Starting</div><div class="v">${s['bankroll']:.2f}</div></div>
- <div class="card"><div class="k">Current</div><div class="v {_row_class(s['pnl'])}">${s['equity']:.2f}</div></div>
- <div class="card"><div class="k">P&amp;L</div><div class="v {_row_class(s['pnl'])}">${s['pnl']:+.2f} ({s['pnl_pct']:+.2f}%)</div></div>
+ <div class="card"><div class="k">Mark-to-mid</div><div class="v {_row_class(s['pnl'])}">${s['equity']:.2f}</div></div>
+ <div class="card"><div class="k">Liquidatable (truth)</div><div class="v {_row_class(s['pnl_conservative'])}">${s['equity_conservative']:.2f}</div></div>
+ <div class="card"><div class="k">Rewards accrued*</div><div class="v pos">${s['est_rewards_accrued']:.2f}</div></div>
+ <div class="card"><div class="k">Realized</div><div class="v {_row_class(s['realized'])}">${s['realized']:+.2f}</div></div>
+ <div class="card"><div class="k">Unrealized</div><div class="v {_row_class(s['unrealized'])}">${s['unrealized']:+.2f}</div></div>
+ <div class="card"><div class="k">Adverse/fill</div><div class="v {_row_class(-s['adverse_mean'])}">{s['adverse_mean']:+.4f}</div></div>
+ <div class="card"><div class="k">Fills (B/S)</div><div class="v">{s['buys']}/{s['sells']}</div></div>
  <div class="card"><div class="k">Cash</div><div class="v">${s['cash']:.2f}</div></div>
  <div class="card"><div class="k">Inventory</div><div class="v">${s['inventory_value']:.2f}</div></div>
- <div class="card"><div class="k">Fills</div><div class="v">{s['fills']}</div></div>
  <div class="card"><div class="k">Open orders</div><div class="v">{s['open_orders']}</div></div>
  <div class="card"><div class="k">Rewards est/day</div><div class="v">${s['est_rewards_per_day']:.2f}</div></div>
- <div class="card"><div class="k">Rewards accrued*</div><div class="v">${s['est_rewards_accrued']:.2f}</div></div>
 </div>
 <h2>Inventory</h2>
-<table><tr><th>Market</th><th>Outcome</th><th class="num">Size</th><th class="num">Mid</th><th class="num">Value</th></tr>{pos_rows}</table>
+<table><tr><th>Market</th><th>Outcome</th><th class="num">Size</th><th class="num">Avg cost</th><th class="num">Mid</th><th class="num">Value</th><th class="num">P&amp;L</th></tr>{pos_rows}</table>
 <h2>Quoted markets</h2>
 <table><tr><th>Market</th><th class="num">$/day</th></tr>{mkt_rows}</table>
 <p class="muted">* reward accrual is a proxy estimate (score model); not a settled payout.
