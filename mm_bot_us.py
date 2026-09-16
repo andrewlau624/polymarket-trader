@@ -219,17 +219,27 @@ class UsMarketMaker:
         dur_h = prog.get("duration_hours") or 24.0
         run_rate = share * prog["pool"] / max(dur_h / 24.0, 1e-6)
         return {"best_bid": best_bid, "best_ask": best_ask, "bids": bids, "asks": asks,
-                "share": share, "est_period": share * prog["pool"], "est_daily": run_rate}
+                "share": share, "est_period": share * prog["pool"], "est_daily": run_rate,
+                # a one-sided/empty book can't satisfy Target Size at our size,
+                # so it can never pay us -> don't waste an order on it
+                "quotable": bool(bids and asks)}
 
     def select(self):
         """Rank candidates by est $/day for our size, not by pool size."""
         cands = self.programs()
         scored = []
+        skipped = 0
         for p in cands:
             e = self.estimate(p)
-            if e:
-                scored.append({**p, **e})
+            if not e:
+                continue
+            if not e.get("quotable") and not self.args.include_empty:
+                skipped += 1
+                continue
+            scored.append({**p, **e})
         scored.sort(key=lambda r: r["est_daily"], reverse=True)
+        if skipped:
+            print(f"  (skipped {skipped} empty-book markets — can't meet Target Size)")
         return scored[: self.args.max_markets]
 
     def run_market(self, prog):
@@ -278,11 +288,13 @@ class UsMarketMaker:
         our = ours_b + ours_a
         comp = comp_b + comp_a
         share = our / (our + comp) if (our + comp) > 0 else 0.0
+        dur_h = prog.get("duration_hours") or 24.0
         metric = {
             "ts": datetime.now(timezone.utc).isoformat(),
             "mode": self.mode, "slug": slug, "pool": prog["pool"],
             "best_bid": best_bid, "best_ask": best_ask, "share": round(share, 4),
-            "est_daily": round(share * prog["pool"], 4), "size": size,
+            "est_daily": round(share * prog["pool"] / max(dur_h / 24.0, 1e-6), 4),
+            "est_period": round(share * prog["pool"], 4), "size": size,
         }
 
         # reprice only when the touch moves
@@ -428,7 +440,9 @@ def main():
     ap.add_argument("--reselect-min", type=int, default=15,
                     help="re-pick markets every N minutes (0 = never). "
                          "Important for live/day_of windows that end soon.")
-    ap.add_argument("--scan", type=int, default=15,
+    ap.add_argument("--include-empty", action="store_true",
+                    help="also quote markets with empty books (they cannot meet Target Size)")
+    ap.add_argument("--scan", type=int, default=25,
                     help="how many candidate programs to book-scan for ranking "
                          "(each costs ~2 API calls; keep under the rate limit)")
     ap.add_argument("--min-pool", type=float, default=100.0)
