@@ -23,6 +23,16 @@ def amount(p):
     return {"value": f"{float(p):.4f}", "currency": "USD"}
 
 
+def unwrap(resp):
+    """Newer US endpoints nest payloads under 'marketData'."""
+    if isinstance(resp, dict):
+        md = resp.get("marketData")
+        if isinstance(md, dict):
+            merged = {**resp, **md}
+            return merged
+    return resp
+
+
 def px(a, default=None):
     """Unwrap an Amount (or raw number/string) to float."""
     if a is None:
@@ -48,10 +58,26 @@ class UsClient:
         return self.c.markets.list(params or None).get("markets", [])
 
     def book(self, slug):
-        return self.c.markets.book(slug)
+        return unwrap(self.c.markets.book(slug))
 
     def bbo(self, slug):
-        return self.c.markets.bbo(slug)
+        return unwrap(self.c.markets.bbo(slug))
+
+    def reference(self, slug):
+        """Best available (bid, ask) — from the book, else from the BBO feed."""
+        try:
+            bids, asks, state = self.book_levels(slug)
+        except Exception:
+            bids, asks, state = [], [], None
+        if bids and asks:
+            return bids[0][0], asks[0][0], bids, asks
+        try:
+            b = self.bbo(slug)
+        except Exception:
+            b = {}
+        bb = px(b.get("bestBid")) or px(b.get("currentPx"))
+        ba = px(b.get("bestAsk"))
+        return bb, ba, bids, asks
 
     def book_levels(self, slug):
         """Normalized (bids, asks) as best-first (price, qty) lists."""

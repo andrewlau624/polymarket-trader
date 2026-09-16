@@ -74,7 +74,37 @@ class UsMarketMaker:
             print("  bbo:", json.dumps(self.client.bbo(slug))[:300])
         earns = self.client.earnings()
         print(f"\nearnings so far: {json.dumps(earns)[:300]}")
-        print("\nIf balances/programs printed above, you're ready: drop --live.")
+
+        # what does qualifying actually cost?
+        bal = 0.0
+        for b in (self.client.balances().get("balances") or []):
+            bal += _num(b.get("currentBalance"))
+        print(f"\n== what qualifying costs ==")
+        print(f"balance: ${bal:,.2f}")
+        for m in markets[:5]:
+            slug = m["marketSlug"]
+            tps = [t for t in (m.get("timePeriods") or []) if t.get("status") == "active"]
+            if not tps:
+                continue
+            t = tps[0]
+            target = _num(t.get("targetSize"))
+            try:
+                bid, ask, _, _ = self.client.reference(slug)
+            except Exception:
+                bid = None
+            price = ask or bid or 0.5
+            per_side = target * price
+            print(f"  {slug[:44]:<44} target={target:>7.0f} px={price:.2f} "
+                  f"-> ~${per_side:>8,.2f}/side (~${per_side*2:,.0f} both)  pool ${_num(t.get('rewardPool')):,.0f}")
+        if markets:
+            slug = markets[0]["marketSlug"]
+            target = _num(([t for t in markets[0]["timePeriods"] if t.get("status") == "active"][0]).get("targetSize"))
+            ref = self.client.reference(slug)
+            price = ref[1] or ref[0] or 0.5
+            need = target * price
+            print(f"\nwith ${bal:,.2f} you can qualify ~{int(bal // need) if need else 0} market side(s) "
+                  f"at target size. Below target on an empty book = no rewards.")
+        print("\nAuth/KYC verified. Fund to at least one market's Target Size before --live.")
 
     # ---- selection ------------------------------------------------------
     def programs(self):
@@ -99,19 +129,28 @@ class UsMarketMaker:
     def run_market(self, prog):
         slug = prog["slug"]
         try:
-            bids, asks, state = self.client.book_levels(slug)
+            ref_bid, ref_ask, bids, asks = self.client.reference(slug)
         except Exception:
             return None
-        if not bids or not asks:
+        if ref_bid is None:
             return None
-        if state and state not in ("MARKET_STATE_OPEN",):
-            return None
-        best_bid, best_ask = bids[0][0], asks[0][0]
-        spread = best_ask - best_bid
-        if spread <= 0 or spread > self.args.max_spread:
-            return None
+        # empty book (common in new US programs): synthesize a spread around the
+        # reference/last price rather than refusing to quote
+        if ref_ask is None or ref_ask - ref_bid <= 0:
+            half = self.args.max_spread / 2.0
+            best_bid = round(max(0.01, ref_bid - half), 3)
+            best_ask = round(min(0.99, ref_bid + half), 3)
+        else:
+            best_bid, best_ask = ref_bid, ref_ask
         tick = max(self.args.tick, 1e-4)
         size = int(self.args.size)
+        target = prog["target"]
+        if size < target and not bids and not asks:
+            # nobody else is quoting and we can't meet Target Size ourselves
+            return {"ts": datetime.now(timezone.utc).isoformat(), "mode": self.mode,
+                    "slug": slug, "pool": prog["pool"], "share": 0.0, "est_daily": 0.0,
+                    "note": f"size {size} < target {target:.0f} and book empty -> cannot qualify",
+                    "repriced": False, "under_target": True}
 
         # join the best price on each side (post-only maker)
         buy_px, sell_px = best_bid, best_ask
