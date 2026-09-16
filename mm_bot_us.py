@@ -28,6 +28,17 @@ def _num(x, default=0.0):
         return default
 
 
+def _hours_left(iso):
+    if not iso:
+        return None
+    try:
+        from datetime import datetime, timezone
+        dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+        return (dt - datetime.now(timezone.utc)).total_seconds() / 3600.0
+    except ValueError:
+        return None
+
+
 def score_side(levels, best, discount, target, tick, our_price, our_size):
     """Reward score for one side: discount^(ticks from best) * size, capped at target."""
     total = 0.0
@@ -129,11 +140,17 @@ class UsMarketMaker:
                     "discount": _num(t.get("discountFactor"), 0.4) or 0.4,
                     "target": _num(t.get("targetSize")),
                     "period": t.get("period"),
+                    "end": t.get("end"),
+                    "hours_left": _hours_left(t.get("end")),
                 })
         rows = [r for r in rows if r["pool"] >= self.args.min_pool and r["target"] > 0]
         if self.args.max_target:
             # small-target programs are where a tiny order is a meaningful share
             rows = [r for r in rows if r["target"] <= self.args.max_target]
+        if self.args.ending_within:
+            # periods ending soon settle sooner -> faster payout signal
+            rows = [r for r in rows
+                    if r["hours_left"] is not None and 0 <= r["hours_left"] <= self.args.ending_within]
         rows.sort(key=lambda r: r["pool"], reverse=True)
         return rows[: self.args.max_markets]
 
@@ -215,6 +232,7 @@ class UsMarketMaker:
         for p in progs[:12]:
             print(f"  pool ${p['pool']:>8,.0f}  disc={p['discount']} target={p['target']:>8.0f}  {p['slug']}")
         it = 0
+        self._last_metric = {}
         while True:
             it += 1
             est = 0.0
@@ -224,6 +242,8 @@ class UsMarketMaker:
                 except Exception as e:
                     print(f"  ! {p['slug']}: {type(e).__name__} {str(e)[:60]}")
                     continue
+                if m:
+                    self._last_metric[m["slug"]] = m
                 if m and m.get("repriced") is not False:
                     est += m["est_daily"]
                     _log(self.args.log_path, m)
@@ -234,8 +254,13 @@ class UsMarketMaker:
                     real = self.client.earnings()
                 except Exception:
                     pass
-            print(f"[iter {it}] est ${est:.2f}/day | orders {sum(len(v) for v in self.orders.values())} "
-                  f"| earnings {json.dumps(real)[:120] if real else '-'}")
+            n_orders = sum(len(v) for v in self.orders.values())
+            top = max((m for m in self._last_metric.values()), key=lambda x: x.get("est_daily", 0),
+                      default=None) if getattr(self, "_last_metric", None) else None
+            extra = (f"| best market share={top['share']:.3f} est=${top['est_daily']:.2f}"
+                     if top else "")
+            print(f"[iter {it}] est ${est:.2f}/day | orders {n_orders} {extra} "
+                  f"| earnings {json.dumps(real)[:80] if real else '-'}")
             if self.args.once or (self.args.iterations and it >= self.args.iterations):
                 break
             time.sleep(self.args.refresh)
@@ -301,6 +326,9 @@ def main():
                          "Small targets give a small order a bigger share.")
     ap.add_argument("--buy-only", action="store_true",
                     help="place bids only (no shorting / no inventory)")
+    ap.add_argument("--ending-within", type=float, default=0.0,
+                    help="only programs whose time period ends within N hours "
+                         "(faster payout signal; 0 = any)")
     args = ap.parse_args()
 
     if args.report:

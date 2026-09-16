@@ -138,7 +138,7 @@ install-services:
 	  'User=$(USER_NAME)' \
 	  'WorkingDirectory=$(APP_DIR)' \
 	  'EnvironmentFile=-$(ENVFILE)' \
-	  'ExecStart=$(PY) mm_bot_us.py --max-markets 15 --min-pool $(MIN_POOL) --refresh 60' \
+	  'ExecStart=$(PY) -u mm_bot_us.py --max-markets 15 --min-pool $(MIN_POOL) --refresh 60' \
 	  'Restart=always' \
 	  'RestartSec=15' \
 	  '' \
@@ -156,7 +156,7 @@ install-services:
 	  'User=$(USER_NAME)' \
 	  'WorkingDirectory=$(APP_DIR)' \
 	  'EnvironmentFile=-$(ENVFILE)' \
-	  'ExecStart=$(PY) mm_bot_us.py --live --buy-only --max-markets $(MARKETS) --min-pool $(MIN_POOL) --max-target $(MAX_TARGET) --size $(SIZE) --refresh 30' \
+	  'ExecStart=$(PY) -u mm_bot_us.py --live --buy-only --max-markets $(MARKETS) --min-pool $(MIN_POOL) --max-target $(MAX_TARGET) --size $(SIZE) --refresh 30' \
 	  'Restart=always' \
 	  'RestartSec=20' \
 	  '' \
