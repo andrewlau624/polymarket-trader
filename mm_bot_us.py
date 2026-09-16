@@ -251,10 +251,15 @@ class UsMarketMaker:
         # pool over a 10-day early window ($24k/day vs $1k/day).
         dur_h = prog.get("duration_hours") or 24.0
         run_rate = share * prog["pool"] / max(dur_h / 24.0, 1e-6)
+        # Target Size uses RAW size. If the book's total on a side is below it,
+        # the side doesn't qualify and nobody scores -> skip those markets.
+        raw_b = sum(q for _, q in bids)
+        raw_a = sum(q for _, q in asks)
+        target = prog["target"]
+        meets = raw_b >= target and raw_a >= target
         return {"best_bid": best_bid, "best_ask": best_ask, "bids": bids, "asks": asks,
                 "share": share, "est_period": share * prog["pool"], "est_daily": run_rate,
-                # a one-sided/empty book can't satisfy Target Size at our size,
-                # so it can never pay us -> don't waste an order on it
+                "raw_bid": raw_b, "raw_ask": raw_a, "meets_target": meets,
                 "quotable": bool(bids and asks)}
 
     def hunt(self):
@@ -287,11 +292,14 @@ class UsMarketMaker:
         rows.sort(key=lambda r: r["est_daily"], reverse=True)
 
         print(f"\nquotable markets: {len(rows)}")
-        print(f"{'est$/day':>10}{'pool':>9}{'target':>8}{'share':>8}{'brd/ask':>9}  period  market")
+        print(f"{'est$/day':>10}{'pool':>8}{'target':>9}{'share':>8}{'tgt?':>6}  period  market")
+        met = 0
         for r in rows[:25]:
-            print(f"{r['est_daily']:>10,.2f}{r['pool']:>9,.0f}{r['target']:>8.0f}"
-                  f"{r['share']:>8.3f}{len(r['bids']):>5}/{len(r['asks']):<3}"
-                  f"  {r['period']:<7} {r['slug'][:38]}")
+            ok = "OK" if r.get("meets_target") else "thin"
+            met += 1 if r.get("meets_target") else 0
+            print(f"{r['est_daily']:>10,.2f}{r['pool']:>8,.0f}{r['target']:>9.0f}"
+                  f"{r['share']:>8.3f}{ok:>6}  {r['period']:<7} {r['slug'][:36]}")
+        print(f"\n  {met}/{len(rows)} meet Target Size (those are the only ones that can pay)")
         if not rows:
             print("  none — every matching market has an empty/one-sided book")
         return rows
@@ -301,6 +309,7 @@ class UsMarketMaker:
         cands = self.programs()
         scored = []
         skipped = 0
+        thin = 0
         for p in cands:
             e = self.estimate(p)
             if not e:
@@ -308,10 +317,15 @@ class UsMarketMaker:
             if not e.get("quotable") and not self.args.include_empty:
                 skipped += 1
                 continue
+            if not e.get("meets_target", True) and not self.args.include_thin:
+                thin += 1
+                continue
             scored.append({**p, **e})
         scored.sort(key=lambda r: r["est_daily"], reverse=True)
         if skipped:
-            print(f"  (skipped {skipped} empty-book markets — can't meet Target Size)")
+            print(f"  (skipped {skipped} empty-book markets)")
+        if thin:
+            print(f"  (skipped {thin} markets whose book is below Target Size)")
         cap = self.args.max_per_period
         if cap:
             # spread across periods so a fast-settling one (daily/day_of) always
@@ -530,6 +544,8 @@ def main():
                          "Important for live/day_of windows that end soon.")
     ap.add_argument("--include-empty", action="store_true",
                     help="also quote markets with empty books (they cannot meet Target Size)")
+    ap.add_argument("--include-thin", action="store_true",
+                    help="also quote markets whose book is below Target Size (won't score)")
     ap.add_argument("--max-per-period", type=int, default=0,
                     help="cap markets from any one period, so a fast-settling "
                          "period (daily) still gets a slot (0 = no cap)")
