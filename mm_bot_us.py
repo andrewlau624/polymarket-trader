@@ -156,8 +156,11 @@ class UsMarketMaker:
 
         # join the best price on each side (post-only maker)
         buy_px, sell_px = best_bid, best_ask
+        if self.args.buy_only:
+            sell_px = None
         comp_b, ours_b = score_side(bids, best_bid, prog["discount"], prog["target"], tick, buy_px, size)
-        comp_a, ours_a = score_side(asks, best_ask, prog["discount"], prog["target"], tick, sell_px, size)
+        comp_a, ours_a = score_side(asks, best_ask, prog["discount"], prog["target"], tick,
+                                    sell_px if sell_px else best_ask, 0 if sell_px is None else size)
         our = ours_b + ours_a
         comp = comp_b + comp_a
         share = our / (our + comp) if (our + comp) > 0 else 0.0
@@ -177,10 +180,11 @@ class UsMarketMaker:
             try:
                 o = self.client.place(slug, "buy", buy_px, size, maker=True)
                 self.orders.setdefault(slug, []).append(_oid(o))
-                o = self.client.place(slug, "sell", sell_px, size, maker=True)
-                self.orders.setdefault(slug, []).append(_oid(o))
+                if sell_px is not None:
+                    o = self.client.place(slug, "sell", sell_px, size, maker=True)
+                    self.orders.setdefault(slug, []).append(_oid(o))
             except Exception as e:
-                metric["error"] = f"{type(e).__name__}: {str(e)[:80]}"
+                metric["error"] = f"{type(e).__name__}: {str(e)[:120]}"
         else:
             self.orders[slug] = [f"paper-buy-{slug}", f"paper-sell-{slug}"]
         self.last_best[slug] = (best_bid, best_ask)
@@ -285,6 +289,8 @@ def main():
     ap.add_argument("--report", action="store_true", help="summarize a paper run")
     ap.add_argument("--min-target", type=float, default=0.0,
                     help="skip programs whose Target Size exceeds this (0 = any)")
+    ap.add_argument("--buy-only", action="store_true",
+                    help="place bids only (no shorting / no inventory)")
     args = ap.parse_args()
 
     if args.report:
