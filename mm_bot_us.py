@@ -473,8 +473,29 @@ class UsMarketMaker:
                     pass
         self.orders[slug] = []
 
+    def cancel_all(self):
+        try:
+            n = len(self.client.open_orders())
+        except Exception:
+            n = "?"
+        try:
+            self.client.cancel_all()
+            self.orders = {}
+            print(f"cancelled {'all' if n == '?' else n} open orders")
+        except Exception as e:
+            print(f"cancel_all failed: {type(e).__name__} {e}")
+
     def loop(self):
         print(f"Polymarket US MM | mode={self.mode}")
+        # reconcile: a previous run killed by SIGTERM leaves orders resting
+        if self.mode == "live":
+            try:
+                existing = self.client.open_orders()
+                if existing:
+                    print(f"clearing {len(existing)} pre-existing orders from an earlier run…")
+                self.client.cancel_all()
+            except Exception as e:
+                print(f"warn: could not clear existing orders: {type(e).__name__} {e}")
         progs = self.select() if not self.args.check else self.programs()
         print(f"selected {len(progs)} markets (ranked by est $/day for size {int(self.args.size)})")
         for p in progs[:12]:
@@ -488,7 +509,8 @@ class UsMarketMaker:
         it = 0
         self._last_metric = {}
         last_select = time.time()
-        while True:
+        try:
+          while True:
             it += 1
             # live windows are short: re-select so we roll into the next event
             # instead of quoting a period that already ended
@@ -537,9 +559,12 @@ class UsMarketMaker:
             if self.args.once or (self.args.iterations and it >= self.args.iterations):
                 break
             time.sleep(self.args.refresh)
-        if self.mode == "live":
-            self.client.cancel_all()
-        self.client.close()
+        except (KeyboardInterrupt, SystemExit):
+            print("\nstopping — cancelling all orders")
+        finally:
+            if self.mode == "live":
+                self.cancel_all()
+            self.client.close()
 
 
 def _oid(resp):
@@ -581,6 +606,8 @@ def report(path):
 
 
 def main():
+    import signal
+    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     ap = argparse.ArgumentParser(description="Polymarket US liquidity-rewards MM.")
     ap.add_argument("--check", action="store_true", help="preflight then exit")
     ap.add_argument("--live", action="store_true", help="place real post-only orders")
@@ -607,6 +634,8 @@ def main():
     ap.add_argument("--refresh", type=int, default=20)
     ap.add_argument("--log-path", default="research/us_timeseries.jsonl")
     ap.add_argument("--report", action="store_true", help="summarize a paper run")
+    ap.add_argument("--cancel-all", action="store_true",
+                    help="cancel every open order and exit")
     ap.add_argument("--account", action="store_true",
                     help="show cash, open orders, positions, real earnings")
     ap.add_argument("--hunt", action="store_true",
@@ -630,6 +659,11 @@ def main():
 
     if args.report:
         report(args.log_path)
+        return
+    if args.cancel_all:
+        if not os.environ.get("POLYMARKET_US_KEY_ID"):
+            raise SystemExit("set POLYMARKET_US_KEY_ID / POLYMARKET_US_SECRET_KEY")
+        UsMarketMaker(args).cancel_all()
         return
     if args.account:
         if not os.environ.get("POLYMARKET_US_KEY_ID"):
