@@ -131,8 +131,9 @@ class UsMarketMaker:
                     "period": t.get("period"),
                 })
         rows = [r for r in rows if r["pool"] >= self.args.min_pool and r["target"] > 0]
-        if self.args.min_target:
-            rows = [r for r in rows if r["target"] <= self.args.min_target]
+        if self.args.max_target:
+            # small-target programs are where a tiny order is a meaningful share
+            rows = [r for r in rows if r["target"] <= self.args.max_target]
         rows.sort(key=lambda r: r["pool"], reverse=True)
         return rows[: self.args.max_markets]
 
@@ -295,8 +296,9 @@ def main():
     ap.add_argument("--refresh", type=int, default=20)
     ap.add_argument("--log-path", default="research/us_timeseries.jsonl")
     ap.add_argument("--report", action="store_true", help="summarize a paper run")
-    ap.add_argument("--min-target", type=float, default=0.0,
-                    help="skip programs whose Target Size exceeds this (0 = any)")
+    ap.add_argument("--max-target", type=float, default=0.0,
+                    help="only programs whose Target Size is <= this (0 = any). "
+                         "Small targets give a small order a bigger share.")
     ap.add_argument("--buy-only", action="store_true",
                     help="place bids only (no shorting / no inventory)")
     args = ap.parse_args()
