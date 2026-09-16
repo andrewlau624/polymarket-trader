@@ -1,0 +1,16 @@
+[Unit]
+Description=Polymarket liquidity-rewards market maker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__APP_DIR__
+EnvironmentFile=-/etc/mm-bot.env
+ExecStart=__APP_DIR__/.venv/bin/python mm_bot.py --min-est-daily 3 --max-markets 6
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
