@@ -2,6 +2,8 @@
 .env
 data/
 research/mm_ledger.jsonl
+research/mm_state.json
+research/stats.html
 __pycache__/
 *.pyc
 .DS_Store

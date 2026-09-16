@@ -4,6 +4,8 @@
 # adverse selection (2-5c/fill) exceeds the spread (<=4.5c), so we quote near
 # the edge of the qualifying band, only re-quote when the mid actually moves,
 # and skew away from inventory. Paper is the default.
+bankroll: 100.0            # starting paper capital shown on the stats page
+
 markets:
   min_daily_rate: 5.0      # only quote markets paying at least this USDC/day
   max_markets: 12          # how many markets to quote at once

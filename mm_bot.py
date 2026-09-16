@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 import requests
 import yaml
 
-from src.pm import clob, rewards
+from src.pm import clob, rewards, stats
 from src.pm.execution import ClobBroker, PaperBroker
 
 
@@ -53,6 +53,11 @@ class MarketMaker:
         self.last_mid = {}        # token_id -> mid we last quoted at
         self.last_trade_ts = {}   # token_id -> newest trade timestamp seen
         self.reward_estimate = {}  # condition_id -> last est $/day
+        self.start_time = time.time()
+        self.bankroll = float(cfg.get("bankroll", 100.0))
+        self.reward_accrued = 0.0
+        self._n_fills_logged = 0
+        self.selected = []
         if args.live:
             self.broker = ClobBroker()
             self.mode = "live"
@@ -159,6 +164,7 @@ class MarketMaker:
 
         for t in mids:
             self.last_mid[t] = mids[t]
+        metric["repriced"] = True
         metric["our_score"] = round(our, 1)
         metric["competition_score"] = round(comp, 1)
         metric["est_share"] = round(rewards.estimate_share(our, comp), 4)
@@ -227,13 +233,17 @@ class MarketMaker:
         return [m for _, m in picked]
 
     def loop(self):
-        print(f"Polymarket MM bot | mode={self.mode} | paper-safe unless --live")
+        print(f"Polymarket MM bot | mode={self.mode} | paper-safe unless --live "
+              f"| bankroll ${self.bankroll:.2f}")
         markets = self.select_markets()
+        self.selected = markets
 
         it = 0
+        last_ts = time.time()
         while True:
             it += 1
             total_est = 0.0
+            repriced = 0
             for m in markets:
                 try:
                     metric = self.run_market(m)
@@ -247,20 +257,36 @@ class MarketMaker:
                     else:
                         self.reward_estimate[m["condition_id"]] = est
                     total_est += est
-                    log(self.args.log_path, metric)
-                    if "est_share" in metric:
-                        print(f"  {metric['question'][:42]:<42} share={metric['est_share']:.3f} "
+                    if metric.get("repriced"):
+                        repriced += 1
+                        log(self.args.log_path, metric)
+                        print(f"  {metric['question'][:42]:<42} share={metric.get('est_share', 0):.3f} "
                               f"est=${est:.2f}/day")
             if self.mode == "paper":
                 self._paper_fills(markets)
-            pnl = self.mark_to_market(markets) if self.mode == "paper" else 0.0
-            print(f"[iter {it}] est_rewards = ${total_est:.2f}/day | "
-                  f"open={self.broker.snapshot().get('n_open')} "
-                  f"positions={len(self.broker.positions)} "
-                  f"paper_pnl={pnl:+.2f}")
+                self._log_new_fills()
+
+            now = time.time()
+            self.reward_accrued += total_est * max(now - last_ts, 0) / 86400.0
+            last_ts = now
+
+            state = stats.build_state(
+                self.broker, markets, self.mode, self.bankroll, self.start_time,
+                total_est, self.reward_accrued, self.last_mid, markets,
+            )
+            stats.write(os.path.dirname(self.args.log_path) or ".", state)
+            print(f"[iter {it}] est_rewards=${total_est:.2f}/day repriced={repriced} "
+                  f"open={state['open_orders']} fills={state['fills']} "
+                  f"equity=${state['equity']:.2f} pnl=${state['pnl']:+.2f}")
             if self.args.once or (self.args.iterations and it >= self.args.iterations):
                 break
             time.sleep(self.args.refresh)
+
+    def _log_new_fills(self):
+        fills = getattr(self.broker, "fills", []) or []
+        for f in fills[self._n_fills_logged:]:
+            log(self.args.log_path, {"type": "fill", **f})
+        self._n_fills_logged = len(fills)
 
         if self.mode == "live":
             self.broker.cancel_all()
@@ -319,6 +345,10 @@ def main():
                     help="only re-quote when mid moves this many cents")
     ap.add_argument("--inventory-skew", type=float, default=None,
                     help="shift quotes against inventory (0=off, 1=strong)")
+    ap.add_argument("--bankroll", type=float, default=None,
+                    help="starting paper capital shown on the stats page")
+    ap.add_argument("--serve-stats", type=int, default=0, metavar="PORT",
+                    help="serve the stats page on 127.0.0.1:PORT (access via ssh -L)")
     ap.add_argument("--log-path", default=None)
     args = ap.parse_args()
 
@@ -339,11 +369,27 @@ def main():
         else cfg["markets"].get("inventory_skew", 0.5)
     )
     args.log_path = args.log_path or cfg["log_path"]
+    if args.bankroll is not None:
+        cfg["bankroll"] = args.bankroll
 
     if args.live and not os.environ.get("POLYMARKET_PRIVATE_KEY"):
         raise SystemExit("--live requires POLYMARKET_PRIVATE_KEY in the environment")
 
+    if args.serve_stats:
+        _serve_stats(os.path.dirname(args.log_path) or ".", args.serve_stats)
+
     MarketMaker(cfg, args).loop()
+
+
+def _serve_stats(directory, port):
+    import http.server
+    import threading
+
+    handler = lambda *a, **k: http.server.SimpleHTTPRequestHandler(*a, directory=directory, **k)
+    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    print(f"stats page: http://127.0.0.1:{port}/stats.html  "
+          f"(tunnel with: ssh -L {port}:127.0.0.1:{port} <user>@<host>)")
 
 
 if __name__ == "__main__":
