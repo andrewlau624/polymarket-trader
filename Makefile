@@ -27,6 +27,7 @@ MIN_POOL  ?= 5000
 MAX_TARGET ?= 0    # 0 = any; e.g. 1000 to prefer small-Target-Size programs
 PERIOD     ?= any  # any | early | day_of | live | daily  (daily pays every day)
 ENDING_WITHIN ?= 0 # only periods ending within N hours (faster payout signal)
+RESELECT  ?= 15    # minutes between re-picking markets (live windows end fast)
 
 # makes API keys from ENVFILE available to any recipe line
 LOAD = set -a; . $(ENVFILE) 2>/dev/null || true; set +a;
@@ -158,7 +159,7 @@ install-services:
 	  'User=$(USER_NAME)' \
 	  'WorkingDirectory=$(APP_DIR)' \
 	  'EnvironmentFile=-$(ENVFILE)' \
-	  'ExecStart=$(PY) -u mm_bot_us.py --live --buy-only --max-markets $(MARKETS) --min-pool $(MIN_POOL) --max-target $(MAX_TARGET) --period $(PERIOD) --ending-within $(ENDING_WITHIN) --size $(SIZE) --refresh 30' \
+	  'ExecStart=$(PY) -u mm_bot_us.py --live --buy-only --max-markets $(MARKETS) --min-pool $(MIN_POOL) --max-target $(MAX_TARGET) --period $(PERIOD) --ending-within $(ENDING_WITHIN) --size $(SIZE) --refresh 30 --reselect-min $(RESELECT)' \
 	  'Restart=always' \
 	  'RestartSec=20' \
 	  '' \

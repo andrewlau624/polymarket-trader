@@ -310,8 +310,21 @@ class UsMarketMaker:
                   f"share={p.get('share', 0):.3f}  {p['slug'][:34]}")
         it = 0
         self._last_metric = {}
+        last_select = time.time()
         while True:
             it += 1
+            # live windows are short: re-select so we roll into the next event
+            # instead of quoting a period that already ended
+            if (self.args.reselect_min
+                    and (time.time() - last_select) / 60.0 >= self.args.reselect_min):
+                fresh = self.select()
+                gone = {p["slug"] for p in progs} - {p["slug"] for p in fresh}
+                for slug in gone:
+                    self._cancel(slug)
+                progs = fresh
+                last_select = time.time()
+                print(f"-- reselected {len(progs)} markets "
+                      f"(dropped {len(gone)}) --")
             est = 0.0
             for p in progs:
                 try:
@@ -395,6 +408,9 @@ def main():
     ap.add_argument("--once", action="store_true")
     ap.add_argument("--iterations", type=int, default=0)
     ap.add_argument("--max-markets", type=int, default=10)
+    ap.add_argument("--reselect-min", type=int, default=15,
+                    help="re-pick markets every N minutes (0 = never). "
+                         "Important for live/day_of windows that end soon.")
     ap.add_argument("--scan", type=int, default=15,
                     help="how many candidate programs to book-scan for ranking "
                          "(each costs ~2 API calls; keep under the rate limit)")
