@@ -91,6 +91,20 @@ class UsMarketMaker:
         except Exception as e:
             print(f"programs failed: {type(e).__name__} {e}")
             top = []
+        try:
+            allp = self.client.all_programs()
+            from collections import Counter
+            cnt = Counter((p["period"] or "?") for p in allp)
+            pool = {}
+            for p in allp:
+                pool[p["period"] or "?"] = pool.get(p["period"] or "?", 0.0) + p["pool"]
+            print("\n== every active liquidity program, by reward period ==")
+            for k, c in cnt.most_common():
+                print(f"  period {k:<10} markets/periods={c:>5}   total daily pool ${pool[k]:>10,.0f}")
+            print("  (use --period <name> to target one)")
+        except Exception as e:
+            print(f"period summary failed: {type(e).__name__} {e}")
+
         print(f"\nbiggest active liquidity programs (top {len(top)}):")
         for p in top:
             hl = _hours_left(p.get("end"))

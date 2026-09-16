@@ -120,6 +120,38 @@ class UsClient:
         return self._retry(
             lambda: self.c.get("/v1/incentives/earnings", query=params or None, authenticated=True))
 
+    def all_programs(self, program_type="liquidityProgram", max_pages=12):
+        """Every active liquidity program period, paginated."""
+        rows, token = [], None
+        for _ in range(max_pages):
+            q = {"statuses": ["active"], "program_type": program_type}
+            if token:
+                q["page_token"] = token
+            resp = self.incentives(**q)
+            if not isinstance(resp, dict):
+                break
+            for m in resp.get("programs", []):
+                ev = m.get("eventStartTime")
+                for t in (m.get("timePeriods") or []):
+                    if t.get("status") != "active":
+                        continue
+                    rows.append({
+                        "slug": m.get("marketSlug"),
+                        "category": m.get("category"),
+                        "subcategory": m.get("subcategory"),
+                        "event_start": ev,
+                        "period": t.get("period"),
+                        "pool": float(t.get("rewardPool") or 0),
+                        "discount": float(t.get("discountFactor") or 0.4) or 0.4,
+                        "target": float(t.get("targetSize") or 0),
+                        "start": t.get("start"),
+                        "end": t.get("end") or ev,
+                    })
+            token = resp.get("nextPageToken")
+            if not token:
+                break
+        return rows
+
     def top_programs(self, n=10, program_type="liquidityProgram"):
         """Active liquidity programs, biggest pool first."""
         rows = []
