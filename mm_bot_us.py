@@ -54,57 +54,65 @@ class UsMarketMaker:
     # ---- checking -------------------------------------------------------
     def check(self):
         print("== Polymarket US preflight ==")
-        print("balances:", json.dumps(self.client.balances())[:400])
-        pos = self.client.positions()
-        print(f"open positions: {len(pos)}")
-        progs = self.client.incentives(statuses=["active"], program_type="liquidityProgram")
-        markets = progs.get("programs", []) if isinstance(progs, dict) else []
-        print(f"active liquidity programs: {len(markets)}")
-        for m in markets[:8]:
-            tps = m.get("timePeriods") or []
-            active = [t for t in tps if t.get("status") == "active"]
-            for t in active[:1]:
-                print(f"  pool ${_num(t.get('rewardPool')):>8,.0f}  disc={t.get('discountFactor')} "
-                      f"target={t.get('targetSize')}  {m.get('marketSlug')}  [{m.get('category')}]")
-        if markets:
-            slug = markets[0]["marketSlug"]
-            b = self.client.book(slug)
-            print(f"\nsample book {slug}: state={b.get('state')} "
-                  f"bids={len(b.get('bids') or [])} offers={len(b.get('offers') or [])}")
-            print("  bbo:", json.dumps(self.client.bbo(slug))[:300])
-        earns = self.client.earnings()
-        print(f"\nearnings so far: {json.dumps(earns)[:300]}")
+        try:
+            print("balances:", json.dumps(self.client.balances())[:300])
+        except Exception as e:
+            print(f"balances failed: {type(e).__name__} {e}")
+        try:
+            print(f"open positions: {len(self.client.positions())}")
+        except Exception as e:
+            print(f"positions failed: {type(e).__name__} {e}")
 
-        # what does qualifying actually cost?
-        bal = 0.0
-        for b in (self.client.balances().get("balances") or []):
-            bal += _num(b.get("currentBalance"))
-        print(f"\n== what qualifying costs ==")
-        print(f"balance: ${bal:,.2f}")
-        for m in markets[:5]:
-            slug = m["marketSlug"]
-            tps = [t for t in (m.get("timePeriods") or []) if t.get("status") == "active"]
-            if not tps:
-                continue
-            t = tps[0]
-            target = _num(t.get("targetSize"))
+        try:
+            top = self.client.top_programs(n=10)
+        except Exception as e:
+            print(f"programs failed: {type(e).__name__} {e}")
+            top = []
+        print(f"\nbiggest active liquidity programs (top {len(top)}):")
+        for p in top:
+            print(f"  pool ${p['pool']:>8,.0f}  disc={p['discount']} target={p['target']:>7.0f}  "
+                  f"{p['slug']}  [{p['category']}]")
+
+        if top:
+            slug = top[0]["slug"]
             try:
-                bid, ask, _, _ = self.client.reference(slug)
+                bids, asks, state = self.client.book_levels(slug)
+                print(f"\nsample book {slug}: state={state} bids={len(bids)} offers={len(asks)}")
+                if bids and asks:
+                    print(f"  best bid/ask: {bids[0][0]:.3f} / {asks[0][0]:.3f}")
+            except Exception as e:
+                print(f"book failed: {type(e).__name__} {e}")
+
+        try:
+            earns = self.client.earnings()
+            print(f"\nearnings so far: {json.dumps(earns)[:300]}")
+        except Exception as e:
+            print(f"\nearnings read failed (not fatal): {type(e).__name__} {str(e)[:80]}")
+
+        bal = 0.0
+        try:
+            for b in (self.client.balances().get("balances") or []):
+                bal += _num(b.get("currentBalance"))
+        except Exception:
+            pass
+        print(f"\n== target size + what your balance can do ==")
+        print(f"balance: ${bal:,.2f}")
+        for p in top:
+            try:
+                bid, ask, _, _ = self.client.reference(p["slug"])
             except Exception:
-                bid = None
+                bid = ask = None
             price = ask or bid or 0.5
-            per_side = target * price
-            print(f"  {slug[:44]:<44} target={target:>7.0f} px={price:.2f} "
-                  f"-> ~${per_side:>8,.2f}/side (~${per_side*2:,.0f} both)  pool ${_num(t.get('rewardPool')):,.0f}")
-        if markets:
-            slug = markets[0]["marketSlug"]
-            target = _num(([t for t in markets[0]["timePeriods"] if t.get("status") == "active"][0]).get("targetSize"))
-            ref = self.client.reference(slug)
-            price = ref[1] or ref[0] or 0.5
-            need = target * price
-            print(f"\nwith ${bal:,.2f} you can qualify ~{int(bal // need) if need else 0} market side(s) "
-                  f"at target size. Below target on an empty book = no rewards.")
-        print("\nAuth/KYC verified. Fund to at least one market's Target Size before --live.")
+            self_need = p["target"] * price
+            print(f"  {p['slug'][:42]:<42} target={p['target']:>7.0f} px={price:.3f} "
+                  f"self-fund=${self_need:>7,.0f}  pool=${p['pool']:,.0f}")
+        if top:
+            price = 0.5
+            need = top[0]["target"] * price
+            print(f"\nNOTE: Target Size is AGGREGATE. If others already supply it (book depth>0),")
+            print(f"you only need enough for one qualifying order, not ${need:,.0f}.")
+            print(f"Your ${bal:,.2f} buys ~{int(bal // price) if price else 0} contracts at {price:.2f}.")
+        print("\nAuth/KYC verified.")
 
     # ---- selection ------------------------------------------------------
     def programs(self):

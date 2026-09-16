@@ -51,7 +51,7 @@ class UsClient:
         self.secret_key = secret_key or os.environ.get("POLYMARKET_US_SECRET_KEY")
         if not self.key_id or not self.secret_key:
             raise ValueError("set POLYMARKET_US_KEY_ID and POLYMARKET_US_SECRET_KEY")
-        self.c = PolymarketUS(key_id=self.key_id, secret_key=self.secret_key)
+        self.c = PolymarketUS(key_id=self.key_id, secret_key=self.secret_key, timeout=15.0)
 
     # --- market data -----------------------------------------------------
     def markets(self, **params):
@@ -96,6 +96,25 @@ class UsClient:
 
     def earnings(self, **params):
         return self.c.get("/v1/incentives/earnings", query=params or None, authenticated=True)
+
+    def top_programs(self, n=10, program_type="liquidityProgram"):
+        """Active liquidity programs, biggest pool first."""
+        rows = []
+        resp = self.incentives(statuses=["active"], program_type=program_type)
+        for m in (resp.get("programs", []) if isinstance(resp, dict) else []):
+            for t in (m.get("timePeriods") or []):
+                if t.get("status") != "active":
+                    continue
+                rows.append({
+                    "slug": m.get("marketSlug"),
+                    "category": m.get("category"),
+                    "pool": float(t.get("rewardPool") or 0),
+                    "discount": float(t.get("discountFactor") or 0.4) or 0.4,
+                    "target": float(t.get("targetSize") or 0),
+                    "period": t.get("period"),
+                })
+        rows.sort(key=lambda r: r["pool"], reverse=True)
+        return rows[:n]
 
     # --- account ---------------------------------------------------------
     def balances(self):
