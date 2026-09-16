@@ -10,8 +10,14 @@ Credentials come from the environment:
 """
 
 import os
+import time
 
 from polymarket_us import PolymarketUS
+
+try:
+    from polymarket_us import RateLimitError
+except Exception:  # pragma: no cover
+    RateLimitError = None
 
 INTENT_BUY = "ORDER_INTENT_BUY_LONG"
 INTENT_SELL = "ORDER_INTENT_SELL_LONG"
@@ -53,15 +59,30 @@ class UsClient:
             raise ValueError("set POLYMARKET_US_KEY_ID and POLYMARKET_US_SECRET_KEY")
         self.c = PolymarketUS(key_id=self.key_id, secret_key=self.secret_key, timeout=15.0)
 
+    def _retry(self, fn, attempts=4):
+        """Back off on rate limits (API allows 20 req/s per key)."""
+        delay = 0.4
+        for i in range(attempts):
+            try:
+                return fn()
+            except Exception as e:
+                limited = RateLimitError is not None and isinstance(e, RateLimitError)
+                if not limited and "429" not in str(e):
+                    raise
+                if i == attempts - 1:
+                    raise
+                time.sleep(delay)
+                delay *= 2
+
     # --- market data -----------------------------------------------------
     def markets(self, **params):
         return self.c.markets.list(params or None).get("markets", [])
 
     def book(self, slug):
-        return unwrap(self.c.markets.book(slug))
+        return unwrap(self._retry(lambda: self.c.markets.book(slug)))
 
     def bbo(self, slug):
-        return unwrap(self.c.markets.bbo(slug))
+        return unwrap(self._retry(lambda: self.c.markets.bbo(slug)))
 
     def reference(self, slug):
         """Best available (bid, ask) — from the book, else from the BBO feed."""
@@ -92,10 +113,12 @@ class UsClient:
 
     # --- incentives (not wrapped by the SDK) -----------------------------
     def incentives(self, **params):
-        return self.c.get("/v1/incentives", query=params or None, authenticated=True)
+        return self._retry(
+            lambda: self.c.get("/v1/incentives", query=params or None, authenticated=True))
 
     def earnings(self, **params):
-        return self.c.get("/v1/incentives/earnings", query=params or None, authenticated=True)
+        return self._retry(
+            lambda: self.c.get("/v1/incentives/earnings", query=params or None, authenticated=True))
 
     def top_programs(self, n=10, program_type="liquidityProgram"):
         """Active liquidity programs, biggest pool first."""

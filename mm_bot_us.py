@@ -192,12 +192,22 @@ class UsMarketMaker:
 
     def run_market(self, prog):
         slug = prog["slug"]
-        try:
-            ref_bid, ref_ask, bids, asks = self.client.reference(slug)
-        except Exception:
-            return None
+        # reuse the quote selection just measured (avoids a second API call and
+        # the rate limit that made the first iteration silently do nothing)
+        if prog.get("best_bid") is not None and not self.orders.get(slug):
+            ref_bid, ref_ask = prog["best_bid"], prog.get("best_ask")
+            bids, asks = prog.get("bids") or [], prog.get("asks") or []
+        else:
+            try:
+                ref_bid, ref_ask, bids, asks = self.client.reference(slug)
+            except Exception as e:
+                return {"ts": datetime.now(timezone.utc).isoformat(), "mode": self.mode,
+                        "slug": slug, "pool": prog["pool"], "share": 0.0, "est_daily": 0.0,
+                        "error": f"{type(e).__name__}: {str(e)[:100]}", "repriced": False}
         if ref_bid is None:
-            return None
+            return {"ts": datetime.now(timezone.utc).isoformat(), "mode": self.mode,
+                    "slug": slug, "pool": prog["pool"], "share": 0.0, "est_daily": 0.0,
+                    "error": "no reference price", "repriced": False}
         # empty book (common in new US programs): synthesize a spread around the
         # reference/last price rather than refusing to quote
         if ref_ask is None or ref_ask - ref_bid <= 0:
@@ -281,10 +291,13 @@ class UsMarketMaker:
                     continue
                 if m:
                     self._last_metric[m["slug"]] = m
+                    if m.get("error"):
+                        print(f"  ! {m['slug'][:40]}: {m['error']}")
                 if m and m.get("repriced") is not False:
-                    est += m["est_daily"]
+                    est += m.get("est_daily", 0.0)
                     _log(self.args.log_path, m)
-                    print(f"  {m['slug'][:40]:<40} share={m['share']:.3f} est=${m['est_daily']:.2f}/day")
+                    print(f"  {m['slug'][:40]:<40} share={m.get('share', 0):.3f} "
+                          f"est=${m.get('est_daily', 0):.2f}/day")
             real = None
             if self.mode == "live":
                 try:
@@ -292,12 +305,13 @@ class UsMarketMaker:
                 except Exception:
                     pass
             n_orders = sum(len(v) for v in self.orders.values())
-            top = max((m for m in self._last_metric.values()), key=lambda x: x.get("est_daily", 0),
-                      default=None) if getattr(self, "_last_metric", None) else None
-            extra = (f"| best market share={top['share']:.3f} est=${top['est_daily']:.2f}"
-                     if top else "")
-            print(f"[iter {it}] est ${est:.2f}/day | orders {n_orders} {extra} "
-                  f"| earnings {json.dumps(real)[:80] if real else '-'}")
+            best = (max(self._last_metric.values(), key=lambda x: x.get("est_daily", 0))
+                    if self._last_metric else None)
+            extra = (f"| best share={best['share']:.3f} est=${best['est_daily']:.2f} "
+                     f"({best['slug'][:28]})" if best else "")
+            errs = sum(1 for m in self._last_metric.values() if m.get("error"))
+            print(f"[iter {it}] quotable est ${est:.2f}/day | orders {n_orders} {extra} "
+                  f"| errors {errs} | earnings {json.dumps(real)[:60] if real else '-'}")
             if self.args.once or (self.args.iterations and it >= self.args.iterations):
                 break
             time.sleep(self.args.refresh)
@@ -351,8 +365,9 @@ def main():
     ap.add_argument("--once", action="store_true")
     ap.add_argument("--iterations", type=int, default=0)
     ap.add_argument("--max-markets", type=int, default=10)
-    ap.add_argument("--scan", type=int, default=30,
-                    help="how many candidate programs to book-scan for ranking")
+    ap.add_argument("--scan", type=int, default=15,
+                    help="how many candidate programs to book-scan for ranking "
+                         "(each costs ~2 API calls; keep under the rate limit)")
     ap.add_argument("--min-pool", type=float, default=100.0)
     ap.add_argument("--size", type=float, default=20, help="contracts per side")
     ap.add_argument("--tick", type=float, default=0.01)
