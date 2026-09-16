@@ -257,6 +257,45 @@ class UsMarketMaker:
                 # so it can never pay us -> don't waste an order on it
                 "quotable": bool(bids and asks)}
 
+    def hunt(self):
+        """Book-scan every program matching the filters; report quotable ones."""
+        from concurrent.futures import ThreadPoolExecutor
+        from collections import Counter
+
+        allp = self.client.all_programs()
+        cnt = Counter((p["period"] or "?") for p in allp)
+        print(f"fetched {len(allp)} active program periods")
+        print("period labels seen: " + ", ".join(f"{k}({v})" for k, v in cnt.most_common()))
+
+        cand = list(allp)
+        if self.args.period and self.args.period != "any":
+            cand = [p for p in cand if (p["period"] or "").lower() == self.args.period]
+        if self.args.category and self.args.category != "any":
+            cand = [p for p in cand
+                    if (p.get("category") or "").lower() == self.args.category.lower()]
+        cand = [p for p in cand if p["pool"] >= self.args.min_pool]
+        if self.args.max_target:
+            cand = [p for p in cand if p["target"] <= self.args.max_target]
+        cand.sort(key=lambda r: r["pool"], reverse=True)
+        cand = cand[: self.args.scan]
+        print(f"book-scanning {len(cand)} of them (period={self.args.period}, "
+              f"category={self.args.category}, min_pool=${self.args.min_pool:,.0f})...")
+
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            ests = list(ex.map(self.estimate, cand))
+        rows = [{**p, **e} for p, e in zip(cand, ests) if e and e.get("quotable")]
+        rows.sort(key=lambda r: r["est_daily"], reverse=True)
+
+        print(f"\nquotable markets: {len(rows)}")
+        print(f"{'est$/day':>10}{'pool':>9}{'target':>8}{'share':>8}{'brd/ask':>9}  period  market")
+        for r in rows[:25]:
+            print(f"{r['est_daily']:>10,.2f}{r['pool']:>9,.0f}{r['target']:>8.0f}"
+                  f"{r['share']:>8.3f}{len(r['bids']):>5}/{len(r['asks']):<3}"
+                  f"  {r['period']:<7} {r['slug'][:38]}")
+        if not rows:
+            print("  none — every matching market has an empty/one-sided book")
+        return rows
+
     def select(self):
         """Rank candidates by est $/day for our size, not by pool size."""
         cands = self.programs()
@@ -504,6 +543,8 @@ def main():
     ap.add_argument("--refresh", type=int, default=20)
     ap.add_argument("--log-path", default="research/us_timeseries.jsonl")
     ap.add_argument("--report", action="store_true", help="summarize a paper run")
+    ap.add_argument("--hunt", action="store_true",
+                    help="book-scan every matching program and list quotable markets")
     ap.add_argument("--max-target", type=float, default=0.0,
                     help="only programs whose Target Size is <= this (0 = any). "
                          "Small targets give a small order a bigger share.")
@@ -521,6 +562,11 @@ def main():
 
     if args.report:
         report(args.log_path)
+        return
+    if args.hunt:
+        if not os.environ.get("POLYMARKET_US_KEY_ID"):
+            raise SystemExit("set POLYMARKET_US_KEY_ID / POLYMARKET_US_SECRET_KEY")
+        UsMarketMaker(args).hunt()
         return
     if not os.environ.get("POLYMARKET_US_KEY_ID"):
         raise SystemExit("set POLYMARKET_US_KEY_ID and POLYMARKET_US_SECRET_KEY")
