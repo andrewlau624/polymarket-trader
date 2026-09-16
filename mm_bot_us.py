@@ -182,6 +182,8 @@ class UsMarketMaker:
         if self.args.max_target:
             # small-target programs are where a small order is a meaningful share
             rows = [r for r in rows if r["target"] <= self.args.max_target]
+        if self.args.category and self.args.category != "any":
+            rows = [r for r in rows if (r.get("category") or "").lower() == self.args.category.lower()]
         if self.args.period and self.args.period != "any":
             rows = [r for r in rows if (r["period"] or "").lower() == self.args.period]
         if self.args.ending_within:
@@ -460,6 +462,8 @@ def main():
     ap.add_argument("--ending-within", type=float, default=0.0,
                     help="only programs whose time period ends within N hours "
                          "(faster payout signal; 0 = any)")
+    ap.add_argument("--category", default="any",
+                    help="only this category (e.g. sports, politics, crypto, economics)")
     ap.add_argument("--period", default="any",
                     choices=["any", "early", "day_of", "live", "daily"],
                     help="only this reward time period (daily pays every day)")
