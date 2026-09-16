@@ -133,5 +133,30 @@ class ClobBroker:
         except Exception:
             return []
 
+    def address(self):
+        try:
+            return self.client.get_address()
+        except Exception:
+            return None
+
+    def balance_allowance(self):
+        """Collateral (USDC) balance + allowance as seen by the exchange."""
+        from py_clob_client.clob_types import AssetType, BalanceAllowanceParams
+        try:
+            return self.client.get_balance_allowance(
+                BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
+            )
+        except Exception as e:
+            return {"error": str(e)}
+
+    def preflight(self):
+        """What must be true before real orders can work."""
+        out = {"address": self.address(), "balance_allowance": self.balance_allowance()}
+        try:
+            out["open_orders"] = len(self.open_orders())
+        except Exception as e:
+            out["open_orders"] = f"error: {e}"
+        return out
+
     def snapshot(self):
         return {"n_open": len(self.open_orders()), "positions": dict(self.positions)}

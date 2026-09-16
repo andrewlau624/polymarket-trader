@@ -499,6 +499,8 @@ def main():
                     help="serve the stats page on 127.0.0.1:PORT (access via ssh -L)")
     ap.add_argument("--sizing-report", action="store_true",
                     help="print per-trade sizing for $1k/$1M and exit")
+    ap.add_argument("--check", action="store_true",
+                    help="live preflight: auth, balance, allowance, min order cost, then exit")
     ap.add_argument("--util", type=float, default=0.8, help="fraction of bankroll deployed")
     ap.add_argument("--timeseries-path", default="research/mm_timeseries.jsonl")
     ap.add_argument("--log-path", default=None)
@@ -524,13 +526,53 @@ def main():
     if args.bankroll is not None:
         cfg["bankroll"] = args.bankroll
 
-    if args.live and not os.environ.get("POLYMARKET_PRIVATE_KEY"):
-        raise SystemExit("--live requires POLYMARKET_PRIVATE_KEY in the environment")
+    if (args.live or args.check) and not os.environ.get("POLYMARKET_PRIVATE_KEY"):
+        raise SystemExit("--live/--check requires POLYMARKET_PRIVATE_KEY in the environment")
+
+    if args.check:
+        _preflight(cfg, args)
+        return
 
     if args.serve_stats:
         _serve_stats(os.path.dirname(args.log_path) or ".", args.serve_stats)
 
     MarketMaker(cfg, args).loop()
+
+
+def _preflight(cfg, args):
+    """Live readiness: creds, balance, allowance, and the capital each market needs."""
+    from src.pm.execution import ClobBroker
+    from src.pm import selector, rewards_api
+
+    print("== live preflight ==")
+    try:
+        broker = ClobBroker()
+    except Exception as e:
+        raise SystemExit(f"auth failed: {type(e).__name__}: {e}")
+    info = broker.preflight()
+    print(f"wallet address : {info['address']}")
+    print(f"balance/allow  : {json.dumps(info['balance_allowance'])[:300]}")
+    print(f"existing orders: {info['open_orders']}")
+
+    uni = rewards_api.sampling_universe(ttl=args.universe_ttl, verbose=True)
+    picked = selector.select(
+        uni, min_pool=cfg["markets"]["min_daily_rate"],
+        min_hours=cfg["markets"].get("min_hours_to_end", 6),
+        shortlist=min(args.shortlist, 200),
+        max_markets=10, size_mult=args.size_mult, spread_frac=args.spread_frac,
+        workers=args.scan_workers, spread_cap_cents=args.max_book_spread_cents,
+    )
+    print("\ncheapest markets this bot would quote (both sides required):")
+    need = []
+    for m in picked:
+        per_side = m["min_size"] * m["mid"]
+        need.append((per_side, m))
+        print(f"  ${per_side:>6.2f}/side (${per_side*2:>6.2f} both)  pool ${m['daily_rate']:>5.0f}  "
+              f"est ${m['est_daily_usd']:>6.2f}/day  {m['question'][:42]}")
+    if need:
+        cheapest = min(n for n, _ in need)
+        print(f"\nMINIMUM WORKING CAPITAL (1 market, both sides): ~${cheapest*2:.2f} "
+              f"(+ buffer for fills/exits)")
 
 
 def _serve_stats(directory, port):
