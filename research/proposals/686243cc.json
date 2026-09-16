@@ -1,0 +1,19 @@
+{
+  "proposal_id": "686243cc",
+  "status": "proposed",
+  "created_at": "2026-09-15T18:01:46.519411+00:00",
+  "holdout_result": null,
+  "mechanism": "For any competitor in a multi-game event, the outcome 'competitor loses at least one game' logically implies the outcome 'competitor does not win every game'. Therefore the YES price of the 'lose any game' market and the YES price of the 'win every game' market must sum to at most 1. If the sum exceeds 1, buy NO in both markets to lock in a risk-free profit.",
+  "counterparty": "Market makers or traders who price the 'lose any game' and 'win every game' markets independently without enforcing the logical impossibility of both being YES.",
+  "why_not_arbitraged": "The joint state where a competitor both loses at least one game and wins every game is logically impossible. Buying NO in both markets costs 2 - (p_lose_any + p_win_every). If p_lose_any + p_win_every > 1, this cost is less than 1, and the payoff is at least 1 in every feasible state: if neither event occurs, both NOs pay 1; if exactly one occurs, one NO pays 1 and the other pays 0. The impossible state (both YES) would pay 0 but cannot occur. Thus the trade is a guaranteed arbitrage.",
+  "falsification": "This relation is falsified as a market inefficiency if observed prices show p(lose any YES) + p(win every YES) > 1 by more than a small threshold after accounting for fees. The logical implication itself is unfalsifiable by real-world outcomes.",
+  "target_market": "Any pair of binary markets on the same competitor and same set of games: 'Will [competitor] lose any game?' and 'Will [competitor] win every game?'",
+  "relations": [
+    {
+      "type": "implies",
+      "antecedent_token": "LOSE_ANY_YES",
+      "consequent_token": "WIN_EVERY_NO",
+      "note": "For any competitor and event, losing at least one game implies not winning every game. Therefore p(LOSE_ANY_YES) <= p(WIN_EVERY_NO) = 1 - p(WIN_EVERY_YES), so p(LOSE_ANY_YES) + p(WIN_EVERY_YES) <= 1. If violated, buy NO on both markets."
+    }
+  ]
+}

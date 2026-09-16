@@ -1,0 +1,20 @@
+{
+  "proposal_id": "e8300c7d",
+  "status": "failed",
+  "created_at": "2026-09-15T17:40:29.886529+00:00",
+  "holdout_result": {
+    "violations": []
+  },
+  "mechanism": "Event-exhaustive sum of YES prices must equal 1 for any complete set of outcome markets for the same event.",
+  "counterparty": "Traders who price individual outcomes inconsistently, leaving the sum of YES prices across all outcomes of an event different from 1.",
+  "why_not_arbitraged": "Liquidity fragmentation, event grouping not recognized by market participants, or fees/slippage prevent immediate arbitrage.",
+  "falsification": "If on the sealed holdout, no event with multiple outcome markets has a sum of YES prices outside [1-epsilon, 1+epsilon] for epsilon greater than transaction costs, then the relation yields no trades.",
+  "target_market": "Any event that has multiple outcome markets with mutually exclusive and exhaustive outcomes (e.g., a tournament winner market with one market per candidate).",
+  "relations": [
+    {
+      "type": "event_exhaustive",
+      "scope": "all",
+      "note": "For any event that has multiple outcome markets that are mutually exclusive and exhaustive (e.g., 'Who will win X?' with one YES/NO market per candidate), the sum of YES prices across all outcome markets must be approximately 1. If sum < 1, buy YES in all outcomes; if sum > 1, sell YES in all outcomes (or buy NO in all)."
+    }
+  ]
+}

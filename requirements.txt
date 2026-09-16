@@ -1,0 +1,7 @@
+ccxt>=4.5
+pandas>=2.0
+numpy>=1.26
+pyyaml>=6.0
+requests>=2.31
+# live Polymarket order placement (optional; only needed for `mm_bot.py --live`)
+py-clob-client>=0.17

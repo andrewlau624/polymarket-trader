@@ -1,0 +1,22 @@
+{
+  "proposal_id": "631eb601",
+  "status": "failed",
+  "created_at": "2026-09-15T17:58:34.254489+00:00",
+  "holdout_result": {
+    "violations": []
+  },
+  "mechanism": "For any game with a binary point-spread market (Team A beats Team B by more than X points, X > 0) and a corresponding moneyline market (Team A wins outright), the spread YES outcome logically implies the moneyline YES outcome. Therefore p(spread YES) must be <= p(moneyline YES). If p(spread YES) > p(moneyline YES), sell the spread YES and buy the moneyline YES. The trade collects p(spread YES) - p(moneyline YES) upfront and has nonnegative payoff in every state because a team cannot win by more than X and still lose the game.",
+  "counterparty": "Liquidity providers or other traders in the point-spread and moneyline markets who are willing to buy the spread YES at the inflated price or sell the moneyline YES at the depressed price.",
+  "why_not_arbitraged": "The implication is a logical certainty, so any price violation is a structural arbitrage. It may persist temporarily due to market fragmentation, latency, or illiquidity, but it cannot survive arbitrage in an efficient market.",
+  "falsification": "The relation would be falsified only by a possible game outcome where the spread market resolves Yes while the moneyline market resolves No. Since a team cannot win by more than a positive spread and lose the game outright, this outcome is impossible. A price snapshot with p(spread YES) > p(moneyline YES) is therefore evidence of mispricing, not a falsification of the logic.",
+  "target_market": "Any binary point-spread market of the form 'Will Team A beat Team B by more than X points?' paired with the corresponding moneyline market for the same game, where X > 0.",
+  "relations": [
+    {
+      "type": "implies",
+      "scope": "all",
+      "antecedent_token": "YES_TOKEN_OF_SPREAD_MARKET",
+      "consequent_token": "YES_TOKEN_OF_MONEYLINE_MARKET",
+      "note": "If Team A beats Team B by more than a positive point spread, then Team A necessarily wins the game outright. Hence the YES price of the spread market must be less than or equal to the YES price of the moneyline market. If violated, buy the moneyline YES and sell the spread YES for a statewise arbitrage."
+    }
+  ]
+}

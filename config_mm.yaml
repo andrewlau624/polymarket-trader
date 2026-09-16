@@ -1,0 +1,22 @@
+# Polymarket liquidity-rewards market maker.
+#
+# Optimised for reward farming, not spread capture: the tape backtest showed
+# adverse selection (2-5c/fill) exceeds the spread (<=4.5c), so we quote near
+# the edge of the qualifying band, only re-quote when the mid actually moves,
+# and skew away from inventory. Paper is the default.
+markets:
+  min_daily_rate: 5.0      # only quote markets paying at least this USDC/day
+  max_markets: 12          # how many markets to quote at once
+  quote_size_mult: 1.0     # quote size = min_size * this (smaller = less fill risk)
+  spread_frac: 0.9         # quote at mid +/- this fraction of max_spread (near edge)
+  refresh_seconds: 20      # loop cadence
+  min_hours_to_end: 6      # skip markets resolving sooner than this
+  reprice_cents: 0.5       # re-quote only when mid moves this many cents
+  inventory_skew: 0.5      # shift quotes against inventory (0=off)
+
+risk:
+  max_notional_per_market: 200.0   # USDC
+  max_total_notional: 1000.0       # USDC
+  max_inventory_per_token: 500.0   # shares
+
+log_path: research/mm_ledger.jsonl

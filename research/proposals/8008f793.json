@@ -1,0 +1,20 @@
+{
+  "proposal_id": "8008f793",
+  "status": "failed",
+  "created_at": "2026-09-15T17:47:32.290307+00:00",
+  "holdout_result": {
+    "violations": []
+  },
+  "mechanism": "Binary complement arbitrage: For any binary market, YES and NO are mutually exclusive and exhaustive outcomes. Their prices must sum to exactly 1. If YES + NO < 1, buy both YES and NO for a guaranteed payoff of 1. If YES + NO > 1, sell both YES and NO (or equivalently, short both) to lock in the excess.",
+  "counterparty": "Traders who quote or trade YES and NO separately without enforcing the complement constraint, or liquidity providers who widen spreads asymmetrically across the two tokens.",
+  "why_not_arbitraged": "The two tokens often trade in separate order books with independent liquidity. Arbitrageurs may face capital constraints, fees, gas, slippage, or inability to short, preventing simultaneous execution when the mispricing is small.",
+  "falsification": "If we observe a binary market where YES + NO != 1 and no profitable arbitrage exists after all costs, or if the sum is consistently 1, the mechanism is falsified.",
+  "target_market": "Any binary market with outcomes ['Yes', 'No'] (scope 'all')",
+  "relations": [
+    {
+      "type": "yes_no",
+      "scope": "all",
+      "note": "For any binary market, YES and NO are complementary. The sum of YES and NO prices must equal 1. If sum < 1, buy both YES and NO. If sum > 1, sell both YES and NO (or equivalently, short both) to lock in the excess."
+    }
+  ]
+}

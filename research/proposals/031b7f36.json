@@ -1,0 +1,21 @@
+{
+  "proposal_id": "031b7f36",
+  "status": "failed",
+  "created_at": "2026-09-15T21:06:32.546660+00:00",
+  "holdout_result": {
+    "violations": []
+  },
+  "mechanism": "Threshold monotonicity for over/under markets on the same numeric quantity. For any two binary markets on the same underlying statistic (e.g., team points, game total points, player yards) with thresholds X < Y, the event 'statistic > Y' logically implies 'statistic > X'. Therefore the YES price of the higher-threshold market must be less than or equal to the YES price of the lower-threshold market. If p(Y) > p(X), sell the higher-threshold YES and buy the lower-threshold YES to lock a risk-free profit.",
+  "counterparty": "Traders who misprice nested threshold events, e.g., pricing a more extreme over at higher probability than a less extreme over on the same numeric quantity.",
+  "why_not_arbitraged": "In an efficient market, monotonicity is enforced by arbitrageurs; any violation is immediately traded away. The relation is a pure logical implication, not a statistical prediction.",
+  "falsification": "Finding any pair of over/under markets on the same numeric quantity with thresholds X < Y where the YES price for the higher threshold exceeds the YES price for the lower threshold by more than transaction costs.",
+  "target_market": "Any pair of binary over/under markets on the same numeric quantity with ordered thresholds.",
+  "relations": [
+    {
+      "type": "implies",
+      "antecedent_token": "YES_TOKEN_HIGHER_THRESHOLD",
+      "consequent_token": "YES_TOKEN_LOWER_THRESHOLD",
+      "note": "For any two markets on the same numeric quantity with thresholds X < Y, the event 'quantity > Y' implies 'quantity > X'. Replace placeholders with the actual YES tokens of the higher-threshold and lower-threshold markets respectively. Scope 'all' means this applies to every matching pair of markets."
+    }
+  ]
+}

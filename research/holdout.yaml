@@ -1,0 +1,18 @@
+# Sealed holdout: markets/events the research LLM can NEVER query.
+# The VisibleMarketTool filters these out of every data response; the
+# runner fetches holdout prices only AFTER a proposal is logged to disk.
+
+holdout:
+  event_slugs: []
+  fraction: 0.25
+  seed: 42
+
+research:
+  proposals_dir: research/proposals
+  graveyard_path: research/graveyard.jsonl
+  sample_events: 5
+  sample_markets: 24
+  # executable edges are small: 1 tick = 0.001, so threshold just above tick noise
+  min_edge: 0.005
+  min_profit: 1.0
+  fee: 0.0

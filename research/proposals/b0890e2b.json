@@ -1,0 +1,20 @@
+{
+  "proposal_id": "b0890e2b",
+  "status": "failed",
+  "created_at": "2026-09-15T21:06:00.210146+00:00",
+  "holdout_result": {
+    "violations": []
+  },
+  "mechanism": "Mock: yes/no pairs on the same market must sum to >= 1",
+  "counterparty": "Mock counterparty",
+  "why_not_arbitraged": "Mock",
+  "falsification": "Mock: any resolved yes/no pair with sum != 1",
+  "target_market": "mock",
+  "relations": [
+    {
+      "type": "yes_no",
+      "condition_id": "mock-condition",
+      "note": "mock"
+    }
+  ]
+}

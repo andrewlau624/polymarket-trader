@@ -1,0 +1,27 @@
+{
+  "proposal_id": "51b102b2",
+  "status": "failed",
+  "created_at": "2026-09-15T17:55:54.722602+00:00",
+  "holdout_result": {
+    "violations": []
+  },
+  "mechanism": "Cross-market logical implication: if Team A beats Team B by more than X points, then Team A's score must be > X and the game total must be > X. Therefore the YES price of the spread market must be <= the YES price of the corresponding team-total-over-X or game-total-over-X market. When the spread YES is priced above the over YES, buy the over and sell the spread to lock in a statewise arbitrage.",
+  "counterparty": "Market makers or liquidity takers on the point-spread market and the team-total/game-total over market for the same game.",
+  "why_not_arbitraged": "The consequent (over) resolves Yes in every state where the antecedent (spread) resolves Yes, because a winning margin > X implies the winner scored > X and the total score > X. Thus p(spread) <= p(over) is a no-arbitrage bound; any violation allows buying the over and selling the spread for nonnegative payoff in all states.",
+  "falsification": "This relation is falsified only if a game outcome can have Team A beating Team B by more than X while Team A scores <= X or the total score <= X. Since scores are nonnegative, such an outcome is impossible; any observed price violation is an executable arbitrage, not a refutation.",
+  "target_market": "Any pair of binary markets on the same game: (1) 'Team A beats Team B by more than X points' and (2) 'Team A total points over X' or 'Game total points over X'.",
+  "relations": [
+    {
+      "type": "implies",
+      "antecedent_token": "YES_TOKEN_OF_SPREAD_MARKET",
+      "consequent_token": "YES_TOKEN_OF_TEAM_TOTAL_OVER_X_MARKET",
+      "note": "If Team A beats Team B by more than X, then Team A's score > X because Team B's score is nonnegative. Therefore p(spread) <= p(team total over X)."
+    },
+    {
+      "type": "implies",
+      "antecedent_token": "YES_TOKEN_OF_SPREAD_MARKET",
+      "consequent_token": "YES_TOKEN_OF_GAME_TOTAL_OVER_X_MARKET",
+      "note": "If Team A beats Team B by more than X, then the total score > X because Team A's score > X and Team B's score >= 0. Therefore p(spread) <= p(game total over X)."
+    }
+  ]
+}

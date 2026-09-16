@@ -1,0 +1,20 @@
+{
+  "proposal_id": "58a0ebcc",
+  "status": "failed",
+  "created_at": "2026-09-15T21:43:27.275411+00:00",
+  "holdout_result": {
+    "violations": []
+  },
+  "mechanism": "For any binary market, the YES and NO outcomes are mutually exclusive and exhaustive, so their prices must sum to 1. If the sum is less than 1, buying both YES and NO guarantees a payoff of 1 at a cost below 1, yielding a risk-free profit. This relation is generic and applies to every binary market regardless of the underlying event.",
+  "counterparty": "The counterparty could be market participants who place limit orders that temporarily create a sum less than 1 due to liquidity fragmentation, latency, or irrational pricing. Arbitrageurs may not have yet exploited this because the mispricing is small and fleeting, or because of transaction costs or capital constraints.",
+  "why_not_arbitraged": "The mispricing may be small and short-lived, and the profit may be eaten up by fees or slippage. Additionally, some markets may have low liquidity, making it difficult to execute both legs simultaneously without moving prices. However, the relation is a fundamental no-arbitrage condition that must hold in equilibrium.",
+  "falsification": "If we observe a binary market where the sum of YES and NO prices is consistently less than 1 (beyond a small tolerance) and no arbitrage opportunity exists due to structural barriers, the relation would be falsified. However, such a violation would indicate a genuine arbitrage opportunity.",
+  "target_market": "all binary markets",
+  "relations": [
+    {
+      "type": "yes_no",
+      "scope": "all",
+      "note": "For any binary market, yes+no must sum to ~1; buy both when sum < 1."
+    }
+  ]
+}

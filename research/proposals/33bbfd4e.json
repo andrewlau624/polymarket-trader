@@ -1,0 +1,29 @@
+{
+  "proposal_id": "33bbfd4e",
+  "status": "failed",
+  "created_at": "2026-09-15T17:48:24.783139+00:00",
+  "holdout_result": {
+    "violations": []
+  },
+  "mechanism": "Exploit violations of logical implications between related binary point-spread markets. For any two markets where one outcome logically implies another, the implied probability of the antecedent must be <= the consequent. Specifically: (1) Same team, larger spread implies smaller spread; (2) Opposite teams, one team covering a positive spread implies the other team does not cover any positive spread. Buy the consequent and sell the antecedent when the inequality is violated.",
+  "counterparty": "Traders or automated market makers who set prices independently across related markets without enforcing logical consistency.",
+  "why_not_arbitraged": "The relations are logical necessities; any violation creates a guaranteed profit by holding a portfolio long the consequent and short the antecedent (or buying the NO of the antecedent). The payoff is non-negative in all states and strictly positive if the antecedent occurs.",
+  "falsification": "The implication would be falsified only if a game outcome could satisfy the antecedent without satisfying the consequent. For same-team larger-to-smaller spread, impossible for positive spreads. For opposite-team exclusivity, impossible for a single game to have both teams win by more than a positive margin. Thus the relations are unfalsifiable by actual outcomes.",
+  "target_market": "All binary point-spread markets on the same game, including same-team different spreads and opposite-team positive spreads.",
+  "relations": [
+    {
+      "type": "implies",
+      "antecedent_token": "HIGHER_SPREAD_YES",
+      "consequent_token": "LOWER_SPREAD_YES",
+      "scope": "all",
+      "note": "For any two binary markets on the same game and same team, if market A has a larger positive point spread than market B, then the YES outcome of A (win by more than the larger spread) implies the YES outcome of B (win by more than the smaller spread). Thus p(A_YES) <= p(B_YES). Token fields are placeholders for the actual YES tokens of the matched markets."
+    },
+    {
+      "type": "implies",
+      "antecedent_token": "TEAM_A_YES",
+      "consequent_token": "TEAM_B_NO",
+      "scope": "all",
+      "note": "For any two binary markets on the same game, one for Team A covering a positive spread and one for Team B covering a positive spread, the YES outcome of Team A's market implies the NO outcome of Team B's market, because both teams cannot win by more than a positive margin. Thus p(TEAM_A_YES) <= p(TEAM_B_NO) = 1 - p(TEAM_B_YES), i.e., p(A_YES)+p(B_YES) <= 1. Token fields are placeholders for the actual YES token of Team A's market and NO token of Team B's market."
+    }
+  ]
+}
