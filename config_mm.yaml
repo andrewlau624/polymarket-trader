@@ -8,7 +8,7 @@ bankroll: 100.0            # starting paper capital shown on the stats page
 
 markets:
   min_daily_rate: 5.0      # only quote markets paying at least this USDC/day
-  max_markets: 12          # how many markets to quote at once
+  max_markets: 25          # how many markets to quote at once
   quote_size_mult: 1.0     # quote size = min_size * this (smaller = less fill risk)
   spread_frac: 0.9         # quote at mid +/- this fraction of max_spread (near edge)
   refresh_seconds: 20      # loop cadence

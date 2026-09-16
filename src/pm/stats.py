@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 def build_state(broker, markets, mode, bankroll, start_time,
                 est_rewards_per_day, reward_accrued, last_mid, selected,
                 last_book=None, avg_cost=None, realized=0.0, adverse=None,
-                buys=0, sells=0):
+                buys=0, sells=0, earnings_real=None, scoring=None):
     last_book = last_book or {}
     avg_cost = avg_cost or {}
     adverse = adverse or []
@@ -77,6 +77,8 @@ def build_state(broker, markets, mode, bankroll, start_time,
         "open_orders": broker.snapshot().get("n_open", 0),
         "est_rewards_per_day": est_rewards_per_day,
         "est_rewards_accrued": reward_accrued,
+        "rewards_real": earnings_real,
+        "orders_scoring": scoring,
         "positions": positions,
         "markets": [
             {"question": m["question"][:60], "daily_rate": m["daily_rate"]}
@@ -89,7 +91,35 @@ def _row_class(pnl):
     return "pos" if pnl > 0 else ("neg" if pnl < 0 else "")
 
 
-def render_html(state):
+def _real(v):
+    if v is None:
+        return "-"
+    if isinstance(v, (int, float)):
+        return f"${v:.4f}"
+    return str(v)[:18]
+
+
+def sparkline(values, width=680, height=70):
+    """Inline SVG equity sparkline (no JS)."""
+    vals = [v for v in values if v is not None]
+    if len(vals) < 2:
+        return ""
+    lo, hi = min(vals), max(vals)
+    rng = (hi - lo) or 1.0
+    pts = []
+    for i, v in enumerate(vals):
+        x = width * i / (len(vals) - 1)
+        y = height - (v - lo) / rng * (height - 6) - 3
+        pts.append(f"{x:.1f},{y:.1f}")
+    colour = "#3ddc84" if vals[-1] >= vals[0] else "#ff5c5c"
+    return (f"<h2>Liquidatable P&amp;L curve (last {len(vals)} samples)</h2>"
+            f"<svg width='{width}' height='{height}' style='background:#171a21;"
+            f"border:1px solid #232733;border-radius:10px'>"
+            f"<polyline fill='none' stroke='{colour}' stroke-width='2' points='{' '.join(pts)}'/></svg>"
+            f"<div class='muted'>range ${lo:+.2f} .. ${hi:+.2f}</div>")
+
+
+def render_html(state, spark=""):
     s = state
     pos_rows = "".join(
         f"<tr><td>{p['question']}</td><td>{p.get('outcome') or ''}</td>"
@@ -136,7 +166,10 @@ def render_html(state):
  <div class="card"><div class="k">Inventory</div><div class="v">${s['inventory_value']:.2f}</div></div>
  <div class="card"><div class="k">Open orders</div><div class="v">{s['open_orders']}</div></div>
  <div class="card"><div class="k">Rewards est/day</div><div class="v">${s['est_rewards_per_day']:.2f}</div></div>
+ <div class="card"><div class="k">Rewards earned (real)</div><div class="v">{_real(s['rewards_real'])}</div></div>
+ <div class="card"><div class="k">Orders scoring</div><div class="v">{s['orders_scoring'] if s['orders_scoring'] is not None else '-'}</div></div>
 </div>
+{spark}
 <h2>Inventory</h2>
 <table><tr><th>Market</th><th>Outcome</th><th class="num">Size</th><th class="num">Avg cost</th><th class="num">Mid</th><th class="num">Value</th><th class="num">P&amp;L</th></tr>{pos_rows}</table>
 <h2>Quoted markets</h2>
@@ -146,9 +179,20 @@ Paper P&amp;L is mark-to-market and does not settle until positions resolve.</p>
 </body></html>"""
 
 
-def write(research_dir, state):
+def write(research_dir, state, timeseries_path=None):
     os.makedirs(research_dir, exist_ok=True)
     with open(os.path.join(research_dir, "mm_state.json"), "w") as fh:
         json.dump(state, fh, indent=2)
+    spark = ""
+    ts = timeseries_path or os.path.join(research_dir, "mm_timeseries.jsonl")
+    if os.path.exists(ts):
+        vals = []
+        with open(ts) as fh:
+            for line in fh.readlines()[-200:]:
+                try:
+                    vals.append(json.loads(line).get("pnl_liq"))
+                except ValueError:
+                    pass
+        spark = sparkline(vals)
     with open(os.path.join(research_dir, "stats.html"), "w") as fh:
-        fh.write(render_html(state))
+        fh.write(render_html(state, spark))

@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 import requests
 import yaml
 
-from src.pm import clob, rewards, sizing, stats
+from src.pm import clob, rewards, rewards_api, selector, sizing, stats
 from src.pm.execution import ClobBroker, PaperBroker
 
 
@@ -66,6 +66,9 @@ class MarketMaker:
         self.adverse = []
         self.buys = 0
         self.sells = 0
+        self._last_select = time.time()
+        self.scoring = None
+        self.earnings_real = None
         if args.live:
             self.broker = ClobBroker()
             self.mode = "live"
@@ -208,6 +211,28 @@ class MarketMaker:
         return rewards.estimate_share(our, comp) * market["daily_rate"]
 
     def select_markets(self):
+        """Scan the cached full reward universe (two-stage) and rank by est $/day."""
+        cfg = self.cfg
+        uni = rewards_api.sampling_universe(ttl=self.args.universe_ttl, verbose=True)
+        picked = selector.select(
+            uni,
+            min_pool=cfg["markets"]["min_daily_rate"],
+            min_hours=cfg["markets"].get("min_hours_to_end", 6),
+            shortlist=self.args.shortlist,
+            max_markets=cfg["markets"]["max_markets"],
+            size_mult=self.args.size_mult,
+            spread_frac=self.args.spread_frac,
+            workers=self.args.scan_workers,
+            log=print,
+        )
+        picked = [m for m in picked if m["est_daily_usd"] >= self.args.min_est_daily]
+        print(f"selected {len(picked)} markets (min est ${self.args.min_est_daily}/day)")
+        for m in picked[:15]:
+            print(f"  ~${m['est_daily_usd']:>6.2f}/day  pool=${m['daily_rate']:>6.1f} "
+                  f"share={m['share']:.3f} depth={m['depth']:>6.0f}  {m['question'][:44]}")
+        return picked
+
+    def _legacy_select_markets(self):
         cfg = self.cfg
         cands = rewards.reward_markets(
             min_daily_rate=cfg["markets"]["min_daily_rate"],
@@ -256,6 +281,12 @@ class MarketMaker:
         last_ts = time.time()
         while True:
             it += 1
+            if (self.args.reselect_min
+                    and (time.time() - self._last_select) / 60.0 >= self.args.reselect_min):
+                print(f"\n-- reselecting markets ({self.args.reselect_min} min) --")
+                markets = self.select_markets()
+                self.selected = markets
+                self._last_select = time.time()
             total_est = 0.0
             repriced = 0
             for m in markets:
@@ -280,6 +311,8 @@ class MarketMaker:
                 self._paper_fills(markets)
                 self._log_new_fills()
                 self._update_adverse()
+            else:
+                self._read_live_rewards()
 
             now = time.time()
             self.reward_accrued += total_est * max(now - last_ts, 0) / 86400.0
@@ -291,8 +324,10 @@ class MarketMaker:
                 last_book=self.last_book, avg_cost=self.avg_cost,
                 realized=self.realized, adverse=self.adverse,
                 buys=self.buys, sells=self.sells,
+                earnings_real=self.earnings_real, scoring=self.scoring,
             )
-            stats.write(os.path.dirname(self.args.log_path) or ".", state)
+            stats.write(os.path.dirname(self.args.log_path) or ".", state,
+                        timeseries_path=self.args.timeseries_path)
             log(self.args.timeseries_path, {
                 "ts": state["updated"], "uptime_min": state["uptime_min"],
                 "pnl_mid": state["pnl"], "pnl_liq": state["pnl_conservative"],
@@ -308,6 +343,21 @@ class MarketMaker:
             if self.args.once or (self.args.iterations and it >= self.args.iterations):
                 break
             time.sleep(self.args.refresh)
+
+    def _read_live_rewards(self):
+        """Live: are our orders scoring, and what have we actually earned?"""
+        oids = [o for lst in self.orders.values() for o in lst][:25]
+        if oids:
+            try:
+                sc = rewards_api.scoring_orders(self.broker.client, oids)
+                ok = sum(1 for v in sc.values() if v)
+                self.scoring = f"{ok}/{len(oids)}"
+            except Exception:
+                pass
+        try:
+            self.earnings_real = rewards_api.earnings(self.broker.client)
+        except Exception:
+            pass
 
     def _sizing_report(self, markets):
         """Show per-order size/notional for several bankrolls, bounded by depth."""
@@ -420,8 +470,14 @@ def main():
                     help="quote size = min_size * multiplier")
     ap.add_argument("--refresh", type=int, default=None, help="seconds between refreshes")
     ap.add_argument("--scan-limit", type=int, default=250,
-                    help="how many reward markets to scan for competition")
-    ap.add_argument("--scan-workers", type=int, default=16)
+                    help="(legacy selector) how many markets to scan")
+    ap.add_argument("--shortlist", type=int, default=600,
+                    help="biggest-pool markets to book-scan each selection")
+    ap.add_argument("--universe-ttl", type=int, default=1800,
+                    help="seconds to cache the ~17k reward-market universe")
+    ap.add_argument("--reselect-min", type=int, default=30,
+                    help="minutes between re-selections (0 = never)")
+    ap.add_argument("--scan-workers", type=int, default=20)
     ap.add_argument("--min-est-daily", type=float, default=1.0,
                     help="skip markets whose estimated reward is below this $/day")
     ap.add_argument("--reprice-cents", type=float, default=None,
