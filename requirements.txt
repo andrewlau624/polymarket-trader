@@ -1,6 +1,8 @@
 requests>=2.31
 pyyaml>=6.0
 
-# Only needed for live order placement (`mm_bot.py --live`).
-# Paper trading and all backtests need just requests + pyyaml.
+# Global exchange (mm_bot.py --live). Not for US persons.
 py-clob-client>=0.17
+
+# Polymarket US (mm_bot_us.py) - CFTC-regulated, Ed25519 keys
+polymarket-us>=0.1.2

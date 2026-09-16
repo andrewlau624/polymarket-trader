@@ -1,5 +1,7 @@
 .venv/
 .env
+/etc
+*.env
 data/
 research/mm_ledger.jsonl
 research/mm_state.json
