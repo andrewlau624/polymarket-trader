@@ -249,6 +249,8 @@ class UsMarketMaker:
         cb, ob = score_side(bids, best_bid, prog["discount"], prog["target"], tick, best_bid, size)
         ca, oa = score_side(asks, best_ask, prog["discount"], prog["target"], tick,
                             best_ask, 0 if self.args.buy_only else size)
+        in_band = (self.args.min_price <= best_bid <= self.args.max_price
+                   and self.args.min_price <= best_ask <= self.args.max_price)
         our, comp = ob + oa, cb + ca
         share = our / (our + comp) if (our + comp) > 0 else 0.0
         # the pool covers the WHOLE period, so your run-rate is pool/share spread
@@ -265,7 +267,7 @@ class UsMarketMaker:
         return {"best_bid": best_bid, "best_ask": best_ask, "bids": bids, "asks": asks,
                 "share": share, "est_period": share * prog["pool"], "est_daily": run_rate,
                 "raw_bid": raw_b, "raw_ask": raw_a, "meets_target": meets,
-                "quotable": bool(bids and asks)}
+                "quotable": bool(bids and asks) and in_band}
 
     def account(self):
         """Plain-English view of your live account: cash, orders, positions, earnings."""
@@ -431,6 +433,10 @@ class UsMarketMaker:
                     "note": f"size {size} < target {target:.0f} and book empty -> cannot qualify",
                     "repriced": False, "under_target": True}
 
+        if not (self.args.min_price <= best_bid <= self.args.max_price):
+            return {"ts": datetime.now(timezone.utc).isoformat(), "mode": self.mode,
+                    "slug": slug, "pool": prog["pool"], "share": 0.0, "est_daily": 0.0,
+                    "note": f"price {best_bid:.3f} outside band", "repriced": False}
         # join the best price on each side (post-only maker)
         buy_px, sell_px = best_bid, best_ask
         if self.args.buy_only:
@@ -654,6 +660,10 @@ def main():
                          "(each costs ~2 API calls; keep under the rate limit)")
     ap.add_argument("--min-pool", type=float, default=100.0)
     ap.add_argument("--size", type=float, default=20, help="contracts per side")
+    ap.add_argument("--min-price", type=float, default=0.05,
+                    help="never bid below this price (avoid lottery tickets)")
+    ap.add_argument("--max-price", type=float, default=0.90,
+                    help="never bid above this price")
     ap.add_argument("--notional", type=float, default=0.0,
                     help="dollar notional per order (overrides --size), e.g. 5 = ~$5/order")
     ap.add_argument("--tick", type=float, default=0.01)
