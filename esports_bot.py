@@ -41,6 +41,7 @@ import argparse
 import collections
 import json
 import os
+import re
 import time
 from datetime import datetime, timezone
 
@@ -49,8 +50,14 @@ from src.esports.risk import Book, Limits, register, size_arbitrage, size_edge_t
 from src.esports.series import role_of, series_format, teams_of
 
 LOG = os.path.join("research", "esports_trades.jsonl")
-ES_WORDS = ("lol", "valorant", "val", "cs2", "csgo", "counter", "dota",
-            "overwatch", "rocket", "esport", "starcraft", "apex", "rainbow")
+# Word-boundary patterns, NOT substrings. A bare "val" matched Valparaiso,
+# Colorado Avalanche, Utah Valley and Virginia Cavaliers - nineteen hits,
+# nineteen false positives, and very nearly a confident wrong answer.
+ES_RE = re.compile(
+    r"\b(lol|valorant|val|cs2|csgo|dota|ow2)\b"
+    r"|league\s+of\s+legends|counter[- ]strike|overwatch|rocket\s+league"
+    r"|starcraft|\besports?\b|rainbow\s+six|apex\s+legends",
+    re.I)
 
 # measured buckets: (low price, high price, side, edge CI low end)
 EDGES = [(0.75, 0.90, "buy", 0.038), (0.15, 0.60, "sell", 0.019)]
@@ -68,8 +75,7 @@ def log(rec):
 
 
 def is_esports(slug, question=""):
-    t = f"{slug} {question}".lower()
-    return any(w in t for w in ES_WORDS)
+    return bool(ES_RE.search(f"{slug} {question}"))
 
 
 def discover(c):
@@ -90,6 +96,22 @@ def discover(c):
         except Exception:
             pass
         time.sleep(0.3)
+
+    fams = collections.Counter()
+    for sl in rows:
+        parts = sl.split("-")
+        if len(parts) >= 2:
+            fams[f"{parts[0]}-{parts[1]}"] += 1
+    print("\nevery market family on the venue:")
+    for name, n in fams.most_common(24):
+        kind = "LADDER" if name.startswith("asc") else "outright"
+        print(f"  {name:<14} {n:>6}  {kind}")
+    ladders = sorted(n for n in fams if n.startswith("asc"))
+    print(f"  ladder families: {', '.join(ladders) or 'none'}")
+    nightly = [n for n in fams if n.split('-')[-1] in ("nhl", "nba", "cbb", "mlb")]
+    if nightly:
+        print(f"  NIGHTLY sports present: {', '.join(sorted(nightly))}")
+        print(f"  -> a ladder on any of these makes the ladder trade nightly.")
 
     es = {sl: q for sl, q in rows.items() if is_esports(sl, q)}
     events = collections.defaultdict(dict)
