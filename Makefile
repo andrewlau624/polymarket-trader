@@ -61,7 +61,7 @@ EDGE_LOG  ?= research/us_edge_log.jsonl
 LOAD = set -a; . $(ENVFILE) 2>/dev/null || true; set +a;
 
 .DEFAULT_GOAL := help
-.PHONY: help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket families keyvertical paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families keyvertical paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -107,6 +107,7 @@ help:
 	@echo "  make ladder-trial    FIRST LIVE RUN: $(TRIAL_CAP) dollars, one sweep, settles fast"
 	@echo "  make families        what market families exist (totals? UFC rounds?)"
 	@echo "  make crossmarket     moneyline vs the ladder zero crossing"
+	@echo "  make crossmarket-bg  same, detached (survives a dropped session)"
 	@echo "  make keyvertical     exact-margin bets: ~100:1 payoff, REAL risk (GAME=<base>)"
 	@echo "  make ladder-kill     stop the detached scanner"
 	@echo ""
@@ -219,6 +220,21 @@ ladder-kill:
 # two books, one event: moneyline vs the ladder's zero crossing
 crossmarket:
 	$(LOAD) $(PY) run_crossmarket.py --max-games $(GAMES)
+
+# same, detached: survives a dropped ssh session. results also land in
+# research/crossmarket.jsonl either way.
+crossmarket-bg:
+	@$(LOAD) nohup $(PY) -u run_crossmarket.py --max-games $(GAMES) \
+	  > crossmarket.out 2>&1 & echo "pid $$! -> crossmarket.out"
+	@echo "watch it with:  tail -f crossmarket.out"
+
+crossmarket-report:
+	@$(PY) -c "import json,os;p='research/crossmarket.jsonl';\
+rows=[json.loads(l) for l in open(p)] if os.path.exists(p) else [];\
+print(f'{len(rows)} records in {p}') or None;\
+[print('  TRADEABLE', r['game'], r['strike'], 'edge', r['edge'], r['shares'],'sh') for r in rows if r.get('tradeable')];\
+print('  (no tradeable gaps recorded)') if not any(r.get('tradeable') for r in rows) else None"
+	@tail -5 crossmarket.out 2>/dev/null || true
 
 # exact-margin verticals: small premium, ~100:1 payoff, REAL risk
 keyvertical:

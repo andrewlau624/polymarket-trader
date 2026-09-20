@@ -23,9 +23,23 @@ monotonicity machinery on a fresh set of books.
 """
 
 import argparse
+import json
+import os
 import re
 import time
 from collections import Counter, defaultdict
+from datetime import datetime, timezone
+
+LOG = os.path.join("research", "crossmarket.jsonl")
+
+
+def log(rec):
+    """Persist findings. A foreground run that takes minutes must not lose
+    everything when the ssh session drops, which is exactly what happened."""
+    os.makedirs(os.path.dirname(LOG) or ".", exist_ok=True)
+    rec["ts"] = datetime.now(timezone.utc).isoformat()
+    with open(LOG, "a") as fh:
+        fh.write(json.dumps(rec) + "\n")
 
 from run_ladder import parse_strike
 
@@ -68,6 +82,9 @@ def main():
     print("\n== MARKET FAMILIES ==")
     for (f, sp, kind), n in fam.most_common():
         print(f"  {f:>4}-{sp:<5} {kind:<9} {n:>6}")
+    log({"kind": "families", "markets": len(slugs),
+         "families": {f"{f}-{sp}-{kind}": n for (f, sp, kind), n in fam.items()},
+         "sub_periods": dict(sub)})
     if sub:
         print("  sub-period ladders: " + ", ".join(f"{k}({v})" for k, v in sub.most_common()))
         print("  ^ thinner books than full-game, so more likely to be inconsistent")
@@ -136,6 +153,14 @@ def main():
             flag = f"  <- {which}, {sz:.0f} sh, ${edge * sz:.2f}"
         print(f"  {base[8:42]:<34} {k:>+7.1f} {lb:>7.3f}/{la:<8.3f} "
               f"{mb:>7.3f}/{ma:<8.3f} {edge:>+7.3f}{flag}")
+        log({"kind": "pair", "game": base, "strike": k, "moneyline": ml,
+             "ladder_bid": lb, "ladder_ask": la, "ml_bid": mb, "ml_ask": ma,
+             "edge": round(edge, 4),
+             "tradeable": bool(edge > args.cost),
+             "shares": (min(mbs, las) if e1 >= e2 else min(lbs, mas)),
+             "side": ("sell_ml_buy_ladder" if e1 >= e2 else "sell_ladder_buy_ml")})
+    log({"kind": "summary", "games_checked": len(pairs[: args.max_games]),
+         "tradeable": found, "cost": args.cost})
     print(f"\n  {found} games priced their outright and their ladder's zero crossing")
     print(f"  more than {args.cost:.3f} apart. Both settle on the same event, so a")
     print(f"  gap is the same kind of free money as a monotonicity violation.")
