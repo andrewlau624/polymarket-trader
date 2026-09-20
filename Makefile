@@ -136,7 +136,7 @@ quiet:
 	@echo "stopped and disabled. `make run` re-enables the old MM bot."
 
 
-.PHONY: money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history keyvertical paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history allmarkets keyvertical paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -297,6 +297,10 @@ families:
 # nightly sport (NBA/NHL from late Oct) is what makes this a daily strategy.
 families-watch:
 	$(LOAD) $(PY) watch_families.py
+
+# EVERY market the venue lists, not just the reward-paying ones
+allmarkets:
+	$(LOAD) $(PY) list_all_markets.py --probe
 
 families-history:
 	@$(PY) watch_families.py --history
