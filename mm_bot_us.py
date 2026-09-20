@@ -65,7 +65,8 @@ def _position_row(v):
 # fields the balance line already explains; anything else gets dumped raw so
 # the real schema is discoverable instead of guessed at
 _KNOWN_BALANCE_KEYS = {"currentBalance", "buyingPower", "balanceReservation",
-                       "assetNotional", "currency"}
+                       "assetNotional", "currency", "bonusReservation",
+                       "availableToWithdraw"}
 # statuses that mean the reward actually landed. Anything else (SKIPPED,
 # PENDING, ...) has not paid, so it is reported separately.
 _PAID_STATUSES = {"PAID", "CREDITED", "COMPLETED", "SETTLED", "SUCCESS"}
@@ -384,23 +385,21 @@ class UsMarketMaker:
                 cash = _amt(b.get("currentBalance"))
                 bp = _amt(b.get("buyingPower"))
                 reserved = _amt(b.get("balanceReservation"))
-                print(f"  cash {_money(cash)}   buying power {_money(bp)}   "
-                      f"reserved {_money(reserved)}")
-                # Observed with zero open orders: cash, buyingPower and
-                # balanceReservation all come back as the SAME number, so the
-                # breakdown carries no information and 'free = cash - reserved'
-                # would read $0.00 on an account that is entirely free.
-                three = [v for v in (cash, bp, reserved) if v is not None]
-                if len(three) == 3 and max(three) - min(three) <= 0.01:
-                    print(f"  (the venue reports all three as the same figure - read "
-                          f"it as {_money(cash)} cash; the split is not populated)")
-                    reserved = None          # do not compare order collateral to it
-                elif cash is not None and reserved is not None:
-                    free = cash - reserved
-                    print(f"  free (cash - reserved) {_money(free)}")
-                    if bp is not None and abs(bp - free) > 0.01:
-                        print(f"  ! the API's buyingPower {_money(bp)} disagrees with "
-                              f"cash - reserved {_money(free)}")
+                # BUYING POWER is the number that matters, and it took four
+                # snapshots to see it. buyingPower tracks bonusReservation
+                # almost exactly and BOTH ROSE when positions were sold, so
+                # "reserved" does not mean "locked by open orders" - it means
+                # "this is bonus credit". Subtracting it from cash produced a
+                # meaningless $0.09 and an inverted warning that buyingPower
+                # was wrong, when buyingPower was right the whole time.
+                bonus = _amt(b.get("bonusReservation"))
+                withdrawable = _amt(b.get("availableToWithdraw"))
+                print(f"  TRADEABLE (buying power) {_money(bp)}")
+                print(f"  cash {_money(cash)}   of which bonus credit "
+                      f"{_money(bonus)}   withdrawable {_money(withdrawable)}")
+                if withdrawable is not None and withdrawable <= 0.0049:
+                    print(f"  (nothing is withdrawable yet: this is promotional "
+                          f"credit, see RESEARCH.md S5a)")
                 extra = sorted(set(b) - _KNOWN_BALANCE_KEYS)
                 if extra:
                     print(f"  other balance fields: "
@@ -438,9 +437,8 @@ class UsMarketMaker:
                       f"{fill_s:<10} {slug[:38]:<38} {oid}")
             print(f"  total: {len(orders)} orders, ${committed:,.2f} of buy-side collateral")
             if reserved is not None and committed > reserved + 0.01:
-                print(f"  ! these bids need ${committed:,.2f} but the venue only reserved "
-                      f"{_money(reserved)} -")
-                print(f"    some rows are stale or already partly filled")
+                print(f"  (resting bids total ${committed:,.2f}; buying power is "
+                      f"{_money(reserved)})")
         except Exception as e:
             print(f"  orders failed: {type(e).__name__} {e}")
 

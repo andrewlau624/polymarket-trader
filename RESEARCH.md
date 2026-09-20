@@ -172,6 +172,29 @@ and see whether status moves off SKIPPED. **Do that before concluding
 anything further about reward economics** — every number in section 5 was
 measured on a bot that may never have been eligible.
 
+## 5c. buyingPower was right all along
+
+Four snapshots were needed to read this correctly:
+
+```
+when            cash  buyPow  bonusRes  bonusHold  cash-res
+start           9.01    9.01      9.01      25.00      0.00
+after probe     9.59    7.59      7.58      24.98      2.00
+mid flatten     8.35    8.26      8.23      24.97      0.09
+after crossing 17.42   17.33     17.33      24.89      0.09
+```
+
+`buyingPower` tracks `bonusReservation` almost exactly, and **both rose when
+positions were sold**. So "reserved" never meant "locked by open orders" - it
+means "this is bonus credit". Subtracting it from cash produced a meaningless
+$0.09 and a warning that `buyingPower` "disagreed", when `buyingPower` was the
+correct field the entire time and the derived number was the wrong one.
+
+The report now leads with **TRADEABLE (buying power)** and shows cash, the
+bonus portion, and `availableToWithdraw` separately. Section 5a's conclusion
+stands - nothing is withdrawable - but the operational reading was inverted:
+the account was never short of tradeable capital.
+
 ## 5. Settled: the rewards programme is not the business
 
 Two days of live quoting produced **$0.07 gross, $0.04 credited**, while
