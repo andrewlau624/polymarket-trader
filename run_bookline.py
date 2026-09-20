@@ -56,16 +56,67 @@ def main():
 
     from src.pm_us.client import UsClient
     c = UsClient()
+
+    # BOTH sources. all_programs() only returns markets carrying an active
+    # reward programme, so a ladder without one is invisible to it - which is
+    # how asc-cfb-ill-ohiost came back "no ladder" while plainly existing.
+    slugs = set()
+    try:
+        slugs |= {p["slug"] for p in c.all_programs() if p.get("slug")}
+    except Exception as e:
+        print(f"  all_programs failed: {type(e).__name__}")
+    for params in ({}, {"limit": 500}, {"limit": 1000}):
+        try:
+            slugs |= {m.get("marketSlug") or m.get("slug")
+                      for m in c.markets(**params)}
+        except Exception:
+            pass
+        time.sleep(0.25)
+    slugs.discard(None)
+
     ladders = {}
-    for p in c.all_programs():
-        base, k = parse_strike(p.get("slug"))
+    for sl in slugs:
+        base, k = parse_strike(sl)
         if base is not None:
-            ladders.setdefault(base, {})[k] = p["slug"]
+            ladders.setdefault(base, {})[k] = sl
     ladders = {b: v for b, v in ladders.items() if len(v) >= 4}
+    print(f"{len(slugs)} markets, {len(ladders)} ladders")
+
     if args.list or not args.game:
-        print(f"{len(ladders)} ladders:")
-        for b, v in sorted(ladders.items(), key=lambda kv: -len(kv[1]))[:20]:
-            print(f"  {len(v):>3} strikes  {b}")
+        # only useful when a bookmaker line EXISTS, so check and rank by that
+        print("\nladders with a published bookmaker line (the tradeable set):")
+        boards, shown = {}, 0
+        for b, v in sorted(ladders.items(), key=lambda kv: -len(kv[1])):
+            parsed = parse_slug(b.replace("asc-", "aec-", 1))
+            if not parsed:
+                continue
+            sport, _t, d = parsed
+            path = SPORT_PATHS.get(sport)
+            if not path:
+                continue
+            key = (path, d.replace("-", ""))
+            if key not in boards:
+                try:
+                    boards[key] = scoreboard(path, date=key[1])
+                except Exception:
+                    boards[key] = []
+                time.sleep(0.3)
+            g = match_game(b.replace("asc-", "aec-", 1), boards[key])
+            if not g:
+                continue
+            sp, ph, pa, prov = espn_line(g["event_id"], path)
+            time.sleep(0.25)
+            if sp is None:
+                continue
+            print(f"  {len(v):>3} strikes  spread {float(sp):>+6.1f}  "
+                  f"[{prov}]  {b}")
+            shown += 1
+            if shown >= 12:
+                break
+        if not shown:
+            print("  none - no ladder currently has a bookmaker line published.")
+            print("  ESPN carries odds for roughly a quarter of games this far out;")
+            print("  coverage improves closer to kickoff, so retry on game day.")
         c.close()
         return
 
