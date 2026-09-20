@@ -53,6 +53,29 @@ sampled before the final 30% of each tape:
    0.75-0.90   157   0.821  0.917   +0.096  [+0.051,+0.137] *
 ```
 
+### It is an esports result, not a general one
+
+`label_tape.py` resolves every cached tape to its gamma question and category.
+The mix that produced the table above:
+
+```
+  Esports 1032 | Other 211 | Politics 30 | Crypto 29 | Sports 15
+```
+
+**Sports has 15 observations.** Split by category (`--by-category`), esports
+is where the whole effect lives, and slightly stronger: `-0.113` on 0.15-0.30
+and `+0.086` on 0.75-0.90. "Other" flips sign in the low buckets. So the
+headline number is a Valorant/LoL result, and the venue being traded is UFC
+and college football.
+
+`make run` still ships `MIN_PX=0.60`, on the grounds that favourite-longshot
+bias is well documented across betting markets generally and that buying
+0.08 lottery tickets needs no study to reject. Treat it as a **prior**, not
+as a measurement of this venue. To replace the prior with evidence:
+
+    python fetch_tape.py --category Sports --max-events 300 --match-only
+    python label_tape.py && python run_calibration.py --category Sports
+
 **Status: candidate, not a finding.** Reasons to distrust it:
 
 * 14 buckets were tested, so ~0.7 false positives are expected by chance.
@@ -61,8 +84,9 @@ sampled before the final 30% of each tape:
 * Resolution is *inferred* from terminal tape prices, so late samples are
   partly self-fulfilling. `--cut 0.5` weakens it to +0.075 but keeps the sign.
 * Only cleanly-resolved, actively-traded markets survive the filter.
-* This tape is Polymarket **global** esports/politics. The live venue is US
-  sports. Transfer is an assumption.
+* This tape is Polymarket **global**, and 77% esports. The live venue is US
+  sports. Transfer is an assumption, and the category split above is evidence
+  against it rather than for it.
 
 What it is already good for: the *negative* result is better supported than
 the positive one, and buying longshots is precisely what the bot was doing

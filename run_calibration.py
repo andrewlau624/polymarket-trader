@@ -31,15 +31,30 @@ import argparse
 import glob
 import os
 
+import json
+
 import numpy as np
 import pandas as pd
 
 TAPE = os.path.join("data", "pm_trades")
+META = os.path.join("data", "pm_market_meta.json")
 DEFAULT_EDGES = (0.05, 0.15, 0.30, 0.45, 0.60, 0.75, 0.90, 0.95)
 
 
-def load_observations(cut=0.30, one_leg=True, min_trades=40, tape=TAPE):
-    """(market, sampled price, realized win) per outcome token."""
+def load_labels(path=META):
+    """conditionId -> category, from label_tape.py. Empty when not built yet."""
+    if not os.path.exists(path):
+        return {}
+    import label_tape
+    meta = json.load(open(path))
+    return {cid: label_tape.classify(f"{m.get('question','')} {m.get('event','')} "
+                                     f"{m.get('event_slug','')}")
+            for cid, m in meta.items()}
+
+
+def load_observations(cut=0.30, one_leg=True, min_trades=40, tape=TAPE, labels=None):
+    """(market, category, sampled price, realized win) per outcome token."""
+    labels = labels if labels is not None else load_labels()
     rows = []
     for fp in sorted(glob.glob(os.path.join(tape, "*.csv"))):
         try:
@@ -72,6 +87,7 @@ def load_observations(cut=0.30, one_leg=True, min_trades=40, tape=TAPE):
             continue
         cutoff = t1 - cut * (t1 - t0)
 
+        cid = os.path.basename(fp)[:-4]
         legs = ["Yes"] if (one_leg and "Yes" in outs) else outs
         for o in legs:
             s = df[(df["outcome"] == o) & (df["timestamp"] <= cutoff)]
@@ -82,6 +98,7 @@ def load_observations(cut=0.30, one_leg=True, min_trades=40, tape=TAPE):
             p = float(mid["price"].mean())
             if 0.0 < p < 1.0:
                 rows.append({"mkt": os.path.basename(fp), "p": p,
+                             "cat": labels.get(cid, "Unlabelled"),
                              "win": 1.0 if o == hi else 0.0})
     return pd.DataFrame(rows)
 
@@ -129,6 +146,9 @@ def main():
     ap.add_argument("--split-half", action="store_true",
                     help="also report the edge on two disjoint halves of the markets")
     ap.add_argument("--tape", default=TAPE)
+    ap.add_argument("--by-category", action="store_true",
+                    help="split by category (needs label_tape.py to have run)")
+    ap.add_argument("--category", default="", help="restrict to one category")
     args = ap.parse_args()
 
     obs = load_observations(cut=args.cut, one_leg=not args.both_legs,
@@ -136,8 +156,23 @@ def main():
     if obs.empty:
         raise SystemExit(f"no usable observations under {args.tape}")
     legs = "both legs" if args.both_legs else "one leg"
+    if args.category:
+        obs = obs[obs.cat == args.category]
+        if obs.empty:
+            raise SystemExit(f"no observations in category {args.category!r}")
     show(table(obs), f"{legs} per market, sampled before the last {args.cut:.0%} "
-                     f"(n={len(obs)}, {obs.mkt.nunique()} markets)")
+                     f"(n={len(obs)}, {obs.mkt.nunique()} markets)"
+                     + (f", category {args.category}" if args.category else ""))
+
+    if args.by_category:
+        counts = obs.cat.value_counts()
+        print(f"\n  category mix: " + ", ".join(f"{c} {n}" for c, n in counts.items()))
+        for cat in counts.index:
+            sub = obs[obs.cat == cat]
+            if len(sub) < 60:
+                print(f"\n=== {cat}: only {len(sub)} observations, skipped ===")
+                continue
+            show(table(sub), f"{cat} (n={len(sub)}, {sub.mkt.nunique()} markets)")
 
     if args.split_half:
         h = obs.mkt.map(lambda s: hash(s) % 2)

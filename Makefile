@@ -27,10 +27,11 @@ MARKETS   ?= 2
 # $ of cost basis per market before the bot stops bidding it (0 = no cap)
 MAX_INV   ?= 10
 # Price band the bot is willing to BUY in. Exits are never gated by it.
-# 0.60 is the crossover in run_calibration.py: every bucket below it priced
-# 0.15-0.60 came back neutral-to-negative, and 0.15-0.30 was significantly
-# negative. Raise to 0.75 to lean on the one positive bucket, at the cost of
-# betting on a finding that has not been validated out of sample.
+# 0.60 is the crossover in run_calibration.py -- but see RESEARCH.md S3: that
+# study is 77% ESPORTS and has only 15 observations in Sports, so for a UFC or
+# CFB venue this number is a cross-market PRIOR (favourite-longshot bias is
+# well documented in betting markets generally), not a measured result. It is
+# set to avoid a region with negative evidence, not to chase a positive one.
 MIN_PX    ?= 0.60
 MAX_PX    ?= 0.90
 MIN_POOL  ?= 1000
@@ -42,13 +43,15 @@ ENDING_WITHIN ?= 0 # only periods ending within N hours (faster payout signal)
 RESELECT  ?= 30    # minutes between re-picking markets (live windows end fast)
 SCAN      ?= 200   # candidates to book-scan in `make hunt`
 WATCH_MIN ?= 120   # minutes for `make watch` to record book + event feed
+TAPE_CAT  ?= Sports  # category for `make tape` (Sports, Crypto, Politics, LoL, …)
+TAPE_EVENTS ?= 300
 EDGE_LOG  ?= research/us_edge_log.jsonl
 
 # makes API keys from ENVFILE available to any recipe line
 LOAD = set -a; . $(ENVFILE) 2>/dev/null || true; set +a;
 
 .DEFAULT_GOAL := help
-.PHONY: help setup pull check hunt account cancel flatten flatten-live calibrate watch lag paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: help setup pull check hunt account cancel flatten flatten-live calibrate tape watch lag paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -78,7 +81,8 @@ help:
 	@echo "  make results         real rewards earned + paper estimate"
 	@echo ""
 	@echo "  RESEARCH (no capital at risk)"
-	@echo "  make calibrate       price vs realized win rate on the cached tape"
+	@echo "  make calibrate       price vs realized win rate, split by category"
+	@echo "  make tape            cache the tape for TAPE_CAT=$(TAPE_CAT) and label it"
 	@echo "  make watch           log the US book against the live ESPN event feed"
 	@echo "  make lag             analyse that log: latency + win-prob divergence"
 	@echo ""
@@ -129,7 +133,12 @@ report:
 # ---------- research (no orders, no capital) -----------------------------
 
 calibrate:
-	$(PY) run_calibration.py --split-half
+	$(PY) run_calibration.py --split-half --by-category
+
+# the cached tape is mostly esports; fill in the category you actually trade
+tape:
+	$(PY) fetch_tape.py --category $(TAPE_CAT) --max-events $(TAPE_EVENTS) --match-only
+	$(PY) label_tape.py
 
 watch:
 	@echo "logging the book + ESPN plays for $(WATCH_MIN) minutes (no orders placed)…"
