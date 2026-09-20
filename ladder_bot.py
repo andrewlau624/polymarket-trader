@@ -332,8 +332,17 @@ def main():
                          "a pair ties up about (1 - credit), so ~$1, until the game "
                          "settles. Set it from your actual free cash: this is the "
                          "binding constraint, not the number of violations.")
-    ap.add_argument("--min-credit", type=float, default=0.01,
-                    help="skip violations thinner than this")
+    ap.add_argument("--min-credit", type=float, default=0.002,
+                    help="absolute floor on credit, below which fees and "
+                         "rounding dominate. The real gate is --hurdle.")
+    ap.add_argument("--hurdle", type=float, default=0.004,
+                    help="required RETURN PER DAY of locked capital. A pair "
+                         "earns credit c on ~$1 held T days to settlement, so "
+                         "the credit needed is hurdle*T. A flat credit "
+                         "threshold accepts 0.010 over 7 days (0.0014/day, "
+                         "barely above zero) while rejecting 0.002 on a "
+                         "quarter ladder (0.0167/day, twelve times better) - "
+                         "which is exactly the fast-settling business.")
     ap.add_argument("--min-size", type=int, default=1)
     ap.add_argument("--max-size", type=int, default=25,
                     help="per-pair share cap for LIVE trading. A dry run ignores "
@@ -471,6 +480,9 @@ def main():
             if hits:
                 top = [g for g, _k in games[:3]]
                 print(f"  prioritising: {', '.join(t[8:38] for t in top)}")
+            print(f"  hurdle {args.hurdle:.4f}/day -> needs "
+                  f"{args.hurdle * 0.12:.4f} on a quarter ladder, "
+                  f"{args.hurdle * 7:.3f} on a game a week out")
             found = locked = 0.0
             for base, ks in games:
                 want = sorted(sorted(ks, key=lambda k: abs(k))[: args.near])
@@ -479,12 +491,14 @@ def main():
                 # capital is scarce, so it must not be spent on 0.005 edges
                 # before a 0.04 one later in the same sweep.
                 room = args.max_capital - state["deployed"]
+                days_to = days_to_settle(base)
+                need = max(args.hurdle * days_to, args.min_credit)
                 for credit, l1, l2, sz in violations(q):
-                    if credit < args.min_credit or sz < args.min_size:
+                    if credit < need or sz < args.min_size:
                         continue
-                    # as capital runs out, demand a better edge for what is left
+                    # as capital runs out, demand a better return for what is left
                     used = state["deployed"] / max(args.max_capital, 1e-9)
-                    if credit < args.min_credit * (1.0 + 3.0 * used):
+                    if credit < need * (1.0 + 3.0 * used):
                         continue
                     if sz >= args.max_size and args.live:
                         print(f"    (size {sz} hit --max-size {args.max_size}; "
@@ -495,7 +509,7 @@ def main():
                     if size < args.min_size:
                         continue
                     found += credit * size
-                    d = days_to_settle(base)
+                    d = days_to
                     per_day = (credit * size) / max(d, 0.01)
                     cap = per_share * size
                     line = (f"  {base[:32]:<32} sell {l1:+.1f} buy {l2:+.1f} "
