@@ -82,6 +82,22 @@ man:
 # money, positions, orders
 money: account
 
+# what is actually running, and what is it burning
+ps:
+	@echo "--- our python processes ---"
+	@ps -eo pid,etime,pcpu,pmem,comm,args | \
+	  grep -E "python[0-9.]*( -u)? (ladder_bot|log_edge|mm_bot_us|run_crossmarket|run_calibration|run_swing_offline|label_tape)\.py" \
+	  | grep -v grep || echo "  none"
+	@echo "--- lockfile ---"
+	@cat research/ladder_bot.lock 2>/dev/null || echo "  none"
+	@echo "--- systemd (enabled = returns on reboot) ---"
+	@systemctl is-enabled $(LIVE_SVC) 2>/dev/null | sed 's/^/  pm-us-live: /' || true
+	@systemctl is-active  $(LIVE_SVC) 2>/dev/null | sed 's/^/  pm-us-live: /' || true
+	@systemctl is-enabled $(PAPER_SVC) 2>/dev/null | sed 's/^/  pm-us-paper: /' || true
+	@systemctl is-active  $(PAPER_SVC) 2>/dev/null | sed 's/^/  pm-us-paper: /' || true
+	@echo "--- load ---"
+	@uptime
+
 # hunt for mispricings in the background (places nothing)
 find:
 	@$(MAKE) --no-print-directory ladder-bg
@@ -120,7 +136,7 @@ quiet:
 	@echo "stopped and disabled. `make run` re-enables the old MM bot."
 
 
-.PHONY: money find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families keyvertical paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families keyvertical paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -132,6 +148,7 @@ help:
 	@echo "  make trade      place ONE bounded live trade (\$$$(TRIAL_CAP))"
 	@echo "  make out        cancel orders + exit positions (dry run)"
 	@echo "  make quiet      stop every bot"
+	@echo "  make ps         what is running, and its CPU"
 	@echo ""
 	@echo "  make rules VSLUG=<slug>   what a market settles on"
 	@echo "  make man                  the full playbook"
@@ -244,7 +261,13 @@ ladder-bg:
 	@echo "stop it with:  make ladder-kill"
 
 ladder-kill:
-	-@pkill -f "ladder_bot.py" && echo "stopped" || echo "not running"
+	@if [ -f research/ladder_bot.lock ]; then \
+	  pid=$$(cut -d' ' -f1 research/ladder_bot.lock); \
+	  kill $$pid 2>/dev/null && echo "stopped pid $$pid" || echo "pid $$pid already gone"; \
+	  rm -f research/ladder_bot.lock; \
+	else echo "no lockfile"; fi
+	@# sweep up any instance started before the lockfile existed
+	-@pkill -f "[l]adder_bot.py --" 2>/dev/null && echo "swept a stray" || true
 
 # two books, one event: moneyline vs the ladder's zero crossing
 crossmarket:
@@ -279,7 +302,7 @@ ladder-report:
 # settlement semantics get confirmed tonight instead of next weekend.
 ladder-trial:
 	@echo "stopping any dry scanner first (it holds the rate-limit lock)…"
-	-@pkill -f "ladder_bot.py" 2>/dev/null; sleep 1; rm -f research/ladder_bot.lock
+	-@$(MAKE) --no-print-directory ladder-kill
 	@echo "LIVE. cap \$$$(TRIAL_CAP), one sweep, games settling within $(TRIAL_DAYS) day(s)."
 	@echo "Watch for [PAIRED] vs [failed]. Then: make account"
 	@echo "Afterwards, restart the scanner with: make ladder-bg"
