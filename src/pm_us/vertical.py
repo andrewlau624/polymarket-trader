@@ -122,15 +122,30 @@ def scan(quotes, fair_pmf, tick=0.001, maker=True, min_ev=0.005, league="cfb"):
     """
     ks = sorted(quotes)
     out = []
-    for l1, l2 in zip(ks[:-1], ks[1:]):
-        margins = spans_margin(l1, l2)
-        p = sum(fair_pmf.get(m, 0.0) for m in margins) if fair_pmf else 0.0
-        r = evaluate(l1, l2, quotes[l1], quotes[l2], p, tick, maker)
-        if r is None or r["depth"] < 1:
+    # EVERY pair l1 < l2, not just adjacent ones. An adjacent-only walk found
+    # $0.00 on a live sweep while the same ladder was carrying seven standing
+    # violations - because all but one of them span more than one strike
+    # (sell +1.5 buy +5.5, sell -1.5 buy +0.5, sell -3.5 buy -1.5). A wider
+    # pair simply covers more margins, so it pays more often and costs more.
+    for i, l1 in enumerate(ks):
+        for l2 in ks[i + 1:]:
+            margins = spans_margin(l1, l2)
+            p = sum(fair_pmf.get(m, 0.0) for m in margins) if fair_pmf else 0.0
+            r = evaluate(l1, l2, quotes[l1], quotes[l2], p, tick, maker)
+            if r is None or r["depth"] < 1:
+                continue
+            if r["risk_free"] or r["ev"] >= min_ev:
+                out.append(r)
+    # best first, and drop overlapping pairs on the same strikes so capital is
+    # not committed twice to what is effectively one view
+    out.sort(key=lambda r: (-r["risk_free"], -r["ev"]))
+    seen, keep = set(), []
+    for r in out:
+        if r["l1"] in seen or r["l2"] in seen:
             continue
-        if r["risk_free"] or r["ev"] >= min_ev:
-            out.append(r)
-    return sorted(out, key=lambda r: (-r["risk_free"], -r["ev"]))
+        seen.add(r["l1"]); seen.add(r["l2"])
+        keep.append(r)
+    return keep
 
 
 def walk_depth(bids1, asks2, fee_fn=None, min_credit=0.0):
