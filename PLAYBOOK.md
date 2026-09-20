@@ -40,8 +40,13 @@ answers it by how much buying power a pair consumes.
 Normal loop: `make find`, wait an hour, `make found`, then `make trade` if
 something stands. `make money` any time. `make quiet` when done.
 
-**Run `make trade` inside tmux.** It places real orders and dies with your
-session.
+`make trade` takes ~30 seconds — no tmux needed. **Do not Ctrl-C it**: the two
+legs of a pair go out back to back, and killing it in between leaves one leg
+naked. If you do interrupt it, run `make found` and look for an `attempt` with
+no matching `paired`, then `make money` to check for an unmatched position.
+
+tmux is worth it for the long ones (`make find`, `crossmarket-bg`) — though
+those already run detached. `Ctrl-b d` detaches, `tmux attach` returns.
 
 After settlement a correct pair realises **the credit**, or **the credit plus
 ~$1/share**. It cannot realise a loss. If it does, stop everything.

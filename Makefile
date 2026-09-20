@@ -61,8 +61,9 @@ TRIAL_CAP ?= 2
 VSLUG     ?=              # a specific market slug for `make verify`
 TRIAL_GAMES ?= 3
 TRIAL_NEAR ?= 8
-TRIAL_DAYS ?= 7    # window for the trial. CFB plays Thu-Sat, so 1 finds
-                   # nothing on a Sunday; 7 reaches the next slate.
+# window for the trial. CFB plays Thu-Sat, so 1 finds nothing on a
+# Sunday; 7 reaches the next slate.
+TRIAL_DAYS ?= 7
 RANK      ?= turnover  # turnover (return/day) | value (biggest credit)
 MIN_CREDIT ?= 0.01
 EDGE_LOG  ?= research/us_edge_log.jsonl
@@ -278,7 +279,7 @@ ladder-trial:
 	@echo "LIVE. cap \$$$(TRIAL_CAP), one sweep, games settling within $(TRIAL_DAYS) day(s)."
 	@echo "Watch for [PAIRED] vs [failed]. Then: make account"
 	@echo "Afterwards, restart the scanner with: make ladder-bg"
-	@echo "RUN THIS INSIDE tmux: it places real orders and dies with your session."
+	@echo "takes ~30s. do NOT ^C it: that can kill it between the two legs of a pair."
 	$(LOAD) $(PY) ladder_bot.py --live --once --max-capital $(TRIAL_CAP) \
 	  --max-days $(TRIAL_DAYS) --near $(TRIAL_NEAR) --max-games $(TRIAL_GAMES) \
 	  --min-credit $(MIN_CREDIT)
