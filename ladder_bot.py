@@ -83,24 +83,30 @@ def probe(c, args):
         if base is None or p["slug"] in held:
             continue
         try:
-            bids, _asks, _s = c.book_levels(p["slug"])
+            _bids, asks, _s = c.book_levels(p["slug"])
         except Exception:
             time.sleep(1.0)
             continue
-        if bids and bids[0][1] >= 1:
-            cand = (p["slug"], bids[0][0])
+        if asks and asks[0][0] is not None and asks[0][0] < 0.90:
+            cand = (p["slug"], asks[0][0])
             break
         time.sleep(0.4)
     if not cand:
-        raise SystemExit("no market with a live bid to probe against")
-    slug, bid = cand
-    print(f"  selling 1 share of {slug} at its bid {bid:.3f} (not held).")
-    print("  This is a REAL order for about $%.2f of exposure. Cancelling it "
-          "immediately." % bid)
+        raise SystemExit("no market with a live ask to probe against")
+    slug, ask = cand
+    # RESTING, not marketable. The first version sold AT THE BID with
+    # maker=False, which crosses and fills by construction - so "cancelling it
+    # immediately" was impossible and the probe left two naked shorts behind.
+    # Price it well above the ask, post-only, so it sits unfilled: acceptance
+    # answers the question, and a resting order can actually be cancelled.
+    px = min(round(ask + 0.08, 3), 0.99)
+    print(f"  placing a RESTING sell of 1 share of {slug}")
+    print(f"  at {px:.3f}, which is {px - ask:.3f} above the ask {ask:.3f}, post-only.")
+    print("  It should not fill. If the venue accepts it, shorting is permitted.")
     if not args.yes:
         raise SystemExit("  re-run with --yes to actually send the probe.")
     try:
-        o = c.place(slug, "sell", bid, 1, maker=False)
+        o = c.place(slug, "sell", px, 1, maker=True)
         oid = o.get("orderId") or o.get("id") if isinstance(o, dict) else None
         print(f"  ACCEPTED (order {oid}). Shorting appears to be permitted.")
         print("  -> the paired arbitrage is executable. Verify it actually "
@@ -113,6 +119,8 @@ def probe(c, args):
             except Exception as e:
                 print(f"  ! COULD NOT CANCEL: {type(e).__name__} {e} - cancel it "
                       f"by hand with `make cancel`")
+        print("  Check `make account`: if a short position appeared, it filled "
+              "anyway and needs closing with `make flatten-live`.")
     except Exception as e:
         msg = f"{type(e).__name__}: {str(e)[:200]}"
         print(f"  REJECTED: {msg}")

@@ -493,8 +493,9 @@ class UsMarketMaker:
             print(f"positions failed: {type(e).__name__} {e}")
             return
         longs = {k: v for k, v in positions.items() if _position_row(v)[0] >= 1}
-        if not longs:
-            print("no long positions to flatten")
+        shorts = {k: v for k, v in positions.items() if _position_row(v)[0] <= -1}
+        if not longs and not shorts:
+            print("no positions to flatten")
             return
         print(f"== FLATTEN ({self.mode}) ==")
         proceeds = pnl_total = 0.0
@@ -524,6 +525,36 @@ class UsMarketMaker:
                 print(f"  sell       {note}")
             except Exception as e:
                 print(f"  {slug[:38]:<38} sell failed: {type(e).__name__} {str(e)[:70]}")
+        # shorts close by BUYING back. A naked short is the riskier leg to
+        # leave open, so it crosses rather than resting.
+        for slug, v in sorted(shorts.items()):
+            net, cost, _ = _position_row(v)
+            qty = int(abs(net))
+            try:
+                bid, ask, _b, _a = self.client.reference(slug)
+            except Exception as e:
+                print(f"  {slug[:38]:<38} book read failed: {type(e).__name__}")
+                continue
+            price = ask if ask else (bid if bid else None)
+            if price is None:
+                print(f"  {slug[:38]:<38} no price available - skipped")
+                continue
+            price = round(min(0.99, max(0.01, price)), 3)
+            got = abs(cost) / qty if qty else 0.0
+            pnl = (got - price) * qty
+            note = (f"{qty:>5} @ {price:.3f}  (sold at {got:.3f}, P&L ${pnl:+.2f})"
+                    f"  {slug[:38]}")
+            if self.mode != "live":
+                print(f"  would BUY BACK {note}")
+                continue
+            try:
+                self.client.place(slug, "buy", price, qty, maker=False)
+                print(f"  buy back  {note}")
+            except Exception as e:
+                print(f"  {slug[:38]:<38} buyback failed: {type(e).__name__} "
+                      f"{str(e)[:70]}")
+            pnl_total += pnl
+
         print(f"\n  proceeds if all fill: ${proceeds:,.2f}   P&L ${pnl_total:+,.2f}")
         if self.mode != "live":
             print("  dry run - add --live (or use 'make flatten-live') to place these.")
