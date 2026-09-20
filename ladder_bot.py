@@ -30,6 +30,7 @@ the strategy rather than hidden.
 import argparse
 import json
 import os
+import sys
 import time
 from datetime import datetime, timezone
 
@@ -119,6 +120,47 @@ def probe(c, args):
         print("     The ladder mispricing is real but unreachable without "
               "inventory in the leg you need to sell.")
         log({"kind": "probe", "result": "rejected", "slug": slug, "error": msg})
+
+
+def past_hits(path=LOG):
+    """How many opportunities each ladder has produced before.
+
+    Twelve of fifteen durable violations sat on ONE ladder while the bot swept
+    twenty-five evenly. Scanning where the violations have been is worth more
+    than breadth: a full sweep takes ~15 minutes, and a violation can be taken
+    by someone else in that time.
+    """
+    hits = {}
+    if not os.path.exists(path):
+        return hits
+    for line in open(path):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            r = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if r.get("kind") == "opportunity" and r.get("game"):
+            hits[r["game"]] = hits.get(r["game"], 0) + 1
+    return hits
+
+
+def rank_games(ladders, hits):
+    """Productive ladders first, then near-dated ones, then the rest.
+
+    The richest credit seen (+0.060) was on a game dated the same day, so
+    ladders close to kickoff are worth more attention than ones a week out.
+    """
+    import re as _re
+
+    def key(item):
+        base, ks = item
+        m = _re.search(r"(\d{4})-(\d{2})-(\d{2})$", base)
+        date = m.group(0) if m else "9999-99-99"
+        return (-hits.get(base, 0), date, -len(ks))
+
+    return sorted(ladders.items(), key=key)
 
 
 def inventory(c, min_strikes):
@@ -231,6 +273,11 @@ def main():
     ap.add_argument("--once", action="store_true")
     args = ap.parse_args()
     args.sell_px = args.buy_px = args.unwind_px = None  # filled per-violation
+    if not args.live and "--max-capital" not in sys.argv:
+        # Nothing is placed, so a dry run should reveal the REAL depth. Clipping
+        # sizes to a live cap is why every violation logged exactly 5 shares and
+        # the report had to warn that its own cap table was understated.
+        args.max_capital = 10_000.0
 
     if not os.environ.get("POLYMARKET_US_KEY_ID"):
         raise SystemExit("set POLYMARKET_US_KEY_ID / POLYMARKET_US_SECRET_KEY")
@@ -284,7 +331,11 @@ def main():
             print(f"\n[{now()[:19]}] {len(ladders)} ladders | sports: "
                   + ", ".join(f"{k}({v})" for k, v in sorted(sports.items(),
                                                              key=lambda kv: -kv[1])))
-            games = sorted(ladders.items(), key=lambda kv: -len(kv[1]))[: args.max_games]
+            hits = past_hits()
+            games = rank_games(ladders, hits)[: args.max_games]
+            if hits:
+                top = [g for g, _k in games[:3]]
+                print(f"  prioritising: {', '.join(t[8:38] for t in top)}")
             found = locked = 0.0
             for base, ks in games:
                 want = sorted(sorted(ks, key=lambda k: abs(k))[: args.near])

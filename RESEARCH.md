@@ -498,6 +498,61 @@ a dollar cap, so `--max-capital 5` actually meant "5 shares". It was only
 close to right because a pair happens to cost about a dollar. Fixed to track
 dollars via `capital_per_share()`.
 
+## 13. Live dry-run results: the strategy is real and small
+
+Seven sweeps, probe **ACCEPTED** (twice) - the venue permits selling a
+contract we do not hold, so the paired trade is executable.
+
+**Persistence is strong.** 12 of 15 violations stand in at least half the
+sweeps; only 3 of 19 were one-sweep stale quotes. The `clmsn-cah` ladder has
+been internally inconsistent for hours. This is a standing inefficiency, not
+noise - nobody is taking it.
+
+**Honest value, after fixing a 7x overstatement.** The first report said
+"$1.43 per sweep". Wrong twice: in dry run `execute_pair()` never ran, so
+every violation was sized as if it had the whole capital cap to itself (15
+violations x 5 shares needed $72 of collateral against a $5 cap); and
+recurring violations are a STOCK you take once, not a per-sweep flow. Fixed
+numbers, best credits first:
+
+```
+ $5 -> $0.20     $20 -> $0.74
+ $9 -> $0.36     $50 -> $1.39
+```
+
+Sweeps now report $0.15-$0.30, which matches.
+
+**Three structural facts learned from the sweeps:**
+
+1. **The violations are concentrated.** 12 of 15 durable ones sat on a single
+   ladder while the bot swept 25 evenly. It now ranks ladders by how many
+   opportunities they have produced before, then by date.
+2. **Near-dated ladders dislocate harder.** The richest credit seen, +0.060,
+   was on a game dated the same day. Games a week out are stale; games about
+   to start are actively wrong.
+3. **A full sweep takes ~15 minutes, not the ~3 the pause implies** - the
+   venue's rate limiting adds about 5x through backoff. Combined with (1),
+   breadth is the wrong thing to spend the cycle on.
+
+Two instances were also running at first, sharing one rate limit and halving
+each other's coverage (27-minute sweeps, every number logged twice). A pid
+lockfile now refuses a second one.
+
+**Dry runs now measure TRUE depth.** Sizes used to be clipped by the
+live-trading cap, which is why every violation logged exactly 5 shares and the
+cap table had to warn it was understating itself. A dry run places nothing, so
+it now runs uncapped unless `--max-capital` is given explicitly.
+
+### The honest bottom line
+
+This works, it is durable, and it is worth about **$0.36 on a $9 account**.
+It scales close to linearly with capital up to the depth limit - roughly
+$1.40 at $50. The blocker is no longer technical.
+
+Before funding anything: the account is promotional credit with
+`availableToWithdraw: 0` (section 5a). A 4%-to-settlement return on locked
+bonus credit is not the same thing as a 4% return.
+
 ## 6. Rules
 
 * Anything new goes through the sealed holdout in `research/holdout.yaml`
