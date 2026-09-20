@@ -648,6 +648,53 @@ and it should be answered before a cent goes here.
 Second: a sign error in the settlement semantics costs the credit on the
 arbitrage, but here it means betting on entirely the wrong margins.
 
+## 16. Frequency beats size: rank by turnover, not credit
+
+Absolute credit is the wrong objective if the goal is compounding. What matters
+is **return per day of locked capital**, because a pair ties up ~$1 a share
+until its market settles and the account cannot redeploy until then.
+
+```
+  $/day   total  days  ret/day   violation
+  0.600    0.15  0.25   6.25%    a same-day ladder
+  0.400    0.10  0.12   4.17%    a 4q ladder, settles in hours
+  0.192    0.96  5.00   0.83%    clmsn-cah  sell -1.5 buy +0.5
+  0.025    0.15  6.00   0.26%    col-bayl   sell -0.5 buy +1.5
+```
+
+**A 0.015 credit settling tonight beats a 0.040 settling Thursday by 7x on a
+daily basis** - and the bot ranked it last, because `rank_games` sorted by
+historical hit count, which favours the ladder with the most standing
+violations regardless of when it pays. `--rank turnover` (now the default)
+sorts by soonest settlement instead. `--rank value` keeps the old behaviour for
+a one-off sweep.
+
+### The bug that mattered more
+
+`game_date()` anchored its date pattern to the end of the slug. Sub-period
+ladders put the date mid-slug (`...-2026-09-19-4q`), so it returned None and
+`within_days()` rejected them. **`--max-days` was silently excluding the only
+markets on the venue that settle in hours** - precisely the ones this objective
+wants. Fixed, and `sub_period()` now recognises 1h/2h/1q-4q so those score
+0.12 days instead of the 7-day fallback.
+
+### Why exiting early does not solve this
+
+The obvious way to recycle capital faster is to close a pair when the
+mispricing corrects, rather than holding to settlement. The persistence data
+says that will rarely fire: violations stood in 7 of 10 sweeps across hours,
+so there is usually no correction to exit into. **The property that makes the
+edge reliable is the same one that makes it slow.** Short-dated markets are the
+lever, not early exit.
+
+### What this implies about where to look
+
+Sub-period ladders are the best structural fit for a compounding objective:
+they settle at the end of a quarter or half, their books are thinner than
+full-game (so more inconsistent), and `make families` counts them. They are
+also small - a 4q ladder had 6 strikes - so expect fewer violations per ladder
+and rely on breadth across the slate.
+
 ## 6. Rules
 
 * Anything new goes through the sealed holdout in `research/holdout.yaml`

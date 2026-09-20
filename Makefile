@@ -52,6 +52,7 @@ GAMES     ?= 25    # ladders to sweep per cycle
 CYCLE     ?= 20    # minutes between full sweeps in `make ladder-dry`
 TRIAL_CAP ?= 2     # $ for the first live trial
 TRIAL_DAYS ?= 1    # only games settling within N days, so it resolves fast
+RANK      ?= turnover  # turnover (return/day) | value (biggest credit)
 MIN_CREDIT ?= 0.01
 EDGE_LOG  ?= research/us_edge_log.jsonl
 
@@ -193,12 +194,12 @@ ladder-probe:
 
 # Scans the whole slate on a cycle and places NOTHING.
 ladder-dry:
-	$(LOAD) $(PY) ladder_bot.py --near $(NEAR) --max-games $(GAMES) --cycle-min $(CYCLE)
+	$(LOAD) $(PY) ladder_bot.py --near $(NEAR) --max-games $(GAMES) --cycle-min $(CYCLE) --rank $(RANK)
 
 # Same, detached: survives ^C and logout. Check on it with `make ladder-report`.
 ladder-bg:
 	@$(LOAD) nohup $(PY) -u ladder_bot.py --near $(NEAR) --max-games $(GAMES) \
-	  --cycle-min $(CYCLE) > ladder_dry.out 2>&1 & echo "pid $$! -> ladder_dry.out"
+	  --cycle-min $(CYCLE) --rank $(RANK) > ladder_dry.out 2>&1 & echo "pid $$! -> ladder_dry.out"
 	@echo "stop it with:  make ladder-kill"
 
 ladder-kill:

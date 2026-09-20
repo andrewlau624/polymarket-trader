@@ -147,10 +147,42 @@ def past_hits(path=LOG):
 
 
 def game_date(base):
-    """'2026-09-25' from a ladder base slug, or None."""
+    """'2026-09-25' from a ladder base slug, or None.
+
+    NOT anchored to the end: sub-period ladders put the date mid-slug
+    (`...-2026-09-19-4q`). An anchored pattern returned None for exactly the
+    markets that settle in hours, so --max-days silently excluded the
+    fastest-turnover books on the venue.
+    """
     import re as _re
-    m = _re.search(r"(\d{4}-\d{2}-\d{2})$", base)
+    m = _re.search(r"(\d{4}-\d{2}-\d{2})", base)
     return m.group(1) if m else None
+
+
+def sub_period(base):
+    """'4q', '2h', ... for a sub-period ladder, else None. These settle at the
+    end of their period rather than the game, so capital recycles fastest."""
+    import re as _re
+    m = _re.search(r"-(1h|2h|1q|2q|3q|4q)(?:-|$)", base)
+    return m.group(1) if m else None
+
+
+def days_to_settle(base, today=None):
+    """Days until this market resolves. Same-day counts as 0.25 (a few hours),
+    a sub-period ladder as 0.12 - capital turnover is what frequency means."""
+    from datetime import date
+    d = game_date(base)
+    if not d:
+        return 7.0
+    today = today or date.today()
+    try:
+        y, m, dd = (int(x) for x in d.split("-"))
+    except ValueError:
+        return 7.0
+    gap = (date(y, m, dd) - today).days
+    if gap > 0:
+        return float(gap)
+    return 0.12 if sub_period(base) else 0.25
 
 
 def within_days(base, max_days, today=None):
@@ -169,7 +201,7 @@ def within_days(base, max_days, today=None):
     return date(y, m, dd) <= today + timedelta(days=max_days)
 
 
-def rank_games(ladders, hits):
+def rank_games(ladders, hits, rank="turnover"):
     """Productive ladders first, then near-dated ones, then the rest.
 
     The richest credit seen (+0.060) was on a game dated the same day, so
@@ -177,13 +209,18 @@ def rank_games(ladders, hits):
     """
     import re as _re
 
-    def key(item):
+    def by_value(item):
         base, ks = item
-        m = _re.search(r"(\d{4})-(\d{2})-(\d{2})$", base)
-        date = m.group(0) if m else "9999-99-99"
-        return (-hits.get(base, 0), date, -len(ks))
+        return (-hits.get(base, 0), game_date(base) or "9999-99-99", -len(ks))
 
-    return sorted(ladders.items(), key=key)
+    def by_turnover(item):
+        # soonest settlement first: a 0.015 credit resolving tonight returns
+        # 6%/day against 0.8%/day for a 0.040 credit resolving Thursday
+        base, ks = item
+        return (days_to_settle(base), -hits.get(base, 0), -len(ks))
+
+    return sorted(ladders.items(),
+                  key=by_turnover if rank == "turnover" else by_value)
 
 
 def inventory(c, min_strikes):
@@ -295,6 +332,10 @@ def main():
     ap.add_argument("--cycle-min", type=float, default=20.0,
                     help="minutes between full sweeps of the slate")
     ap.add_argument("--max-games", type=int, default=25)
+    ap.add_argument("--rank", default="turnover", choices=("turnover", "value"),
+                    help="turnover = soonest settlement first, which maximises "
+                         "return per day of locked capital. value = biggest "
+                         "credit first, which maximises the one-off take.")
     ap.add_argument("--max-days", type=int, default=0,
                     help="only ladders whose game settles within N days (0 = all). "
                          "Use --max-days 1 for a first live trial: the pair settles "
@@ -380,7 +421,7 @@ def main():
                 ladders = {b: k for b, k in ladders.items()
                            if within_days(b, args.max_days)}
                 print(f"  {len(ladders)} ladders settle within {args.max_days}d")
-            games = rank_games(ladders, hits)[: args.max_games]
+            games = rank_games(ladders, hits, args.rank)[: args.max_games]
             if hits:
                 top = [g for g, _k in games[:3]]
                 print(f"  prioritising: {', '.join(t[8:38] for t in top)}")
@@ -408,8 +449,13 @@ def main():
                     if size < args.min_size:
                         continue
                     found += credit * size
-                    line = (f"  {base[:34]:<34} sell {l1:+.1f} buy {l2:+.1f} "
-                            f"credit {credit:+.3f} x{size} = ${credit * size:.2f}")
+                    d = days_to_settle(base)
+                    per_day = (credit * size) / max(d, 0.01)
+                    cap = per_share * size
+                    line = (f"  {base[:32]:<32} sell {l1:+.1f} buy {l2:+.1f} "
+                            f"credit {credit:+.3f} x{size} = ${credit * size:.2f}"
+                            f"  | {d:.2f}d  ${per_day:.3f}/day  "
+                            f"{per_day / max(cap, 0.01):.1%}/day")
                     if not args.live:
                         # spend the budget in simulation too, or every violation
                         # is sized as if it had the whole cap to itself and the
