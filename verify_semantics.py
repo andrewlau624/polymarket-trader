@@ -1,151 +1,129 @@
-"""Confirm what a ladder strike settles on, using games that ALREADY resolved.
+"""Read the venue's OWN settlement rules instead of inferring them.
 
-Everything built here rests on one inferred claim: that `pos-5pt` means the
-team RECEIVES 5 points, so the contract pays iff `margin > -line`. It was
-derived from the shape of a live price curve, not from documentation, and this
-project has misread this venue's semantics five times.
+markets.list() returns a `description` field containing the resolution rules in
+plain English, plus `marketSides` with each side's team and its settled `price`.
+That is documentation, and this project spent a long time inferring around it -
+deriving the spread convention from the shape of a price curve and getting the
+sign wrong once already.
 
-Waiting for a live position to settle is one way to find out. This is the
-better way: games from past dates have already resolved, so their strikes
-should read 1 or 0, and ESPN knows the actual final score. If every settled
-strike agrees with `margin > -line`, the convention is confirmed - at no risk
-and with no waiting.
+This finds a SPREAD market, prints its description verbatim, and shows each
+side with its team and price. The description states what the line means; the
+sides say which team it is written from.
 
-    python verify_semantics.py --date 2026-09-19
-    python verify_semantics.py --date 2026-09-19 --dump   # raw market fields
+    python verify_semantics.py                 # hunt for a spread market
+    python verify_semantics.py --slug <slug>   # a specific one
+    python verify_semantics.py --settled       # settled ones, with prices
 
-If the API exposes no resolution field, --dump prints everything it does
-return, so the next step is informed rather than guessed.
+markets.list() returned only 20 markets unfiltered, so this pages through and
+tries several filter spellings rather than assuming one.
 """
 
 import argparse
 import json
-import re
 import time
 
-from run_ladder import parse_strike
-from src.pm_us.feed import SPORT_PATHS, match_game, parse_slug, scoreboard
+
+def fetch(c, **params):
+    try:
+        return c.markets(**params)
+    except Exception as e:
+        print(f"  markets({params}) -> {type(e).__name__}: {str(e)[:90]}")
+        return []
+
+
+def show(m, verbose=True):
+    slug = m.get("marketSlug") or m.get("slug") or "?"
+    print(f"\n{'=' * 74}")
+    print(f"slug          {slug}")
+    print(f"question      {m.get('question')}")
+    print(f"marketType    {m.get('marketType')} / {m.get('sportsMarketType')}")
+    print(f"closed        {m.get('closed')}   active {m.get('active')}")
+    for k in ("line", "spread", "handicap", "points", "threshold", "value"):
+        if m.get(k) is not None:
+            print(f"{k:<13} {m.get(k)}")
+    desc = m.get("description") or ""
+    if desc:
+        print("\n--- DESCRIPTION (the venue's own settlement rule) ---")
+        print(desc[:1400])
+        print("--- end ---")
+    sides = m.get("marketSides") or []
+    if sides:
+        print(f"\nmarketSides ({len(sides)}):")
+        for sd in sides:
+            team = (sd.get("team") or {})
+            print(f"  price {str(sd.get('price')):>7}  long={sd.get('long')}  "
+                  f"{str(sd.get('description'))[:22]:<22} "
+                  f"team={team.get('safeName') or team.get('name') or '-'}")
+    if verbose and not desc:
+        print(json.dumps(m, indent=1)[:1200])
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Verify ladder settlement semantics.")
-    ap.add_argument("--date", required=True, help="a past game date, YYYY-MM-DD")
-    ap.add_argument("--dump", action="store_true", help="print raw market fields")
-    ap.add_argument("--max-markets", type=int, default=40)
-    ap.add_argument("--pause", type=float, default=0.4)
+    ap = argparse.ArgumentParser(description="Read the venue's settlement rules.")
+    ap.add_argument("--slug", default="")
+    ap.add_argument("--settled", action="store_true")
+    ap.add_argument("--pages", type=int, default=12)
+    ap.add_argument("--date", default="", help="kept for compatibility; ignored")
+    ap.add_argument("--dump", action="store_true", help="kept for compatibility")
     args = ap.parse_args()
 
-    from src.pm_us.client import UsClient, px
+    from src.pm_us.client import UsClient
     c = UsClient()
 
-    try:
-        mkts = c.markets()
-    except Exception as e:
-        raise SystemExit(f"market list failed: {type(e).__name__} {e}")
-    print(f"{len(mkts)} markets returned by markets.list()")
-
-    # ladder strikes on the requested date
-    cand = []
-    for m in mkts:
-        slug = m.get("marketSlug") or m.get("slug") or ""
-        if args.date not in slug:
-            continue
-        base, k = parse_strike(slug)
-        if k is not None:
-            cand.append((slug, base, k, m))
-    print(f"{len(cand)} ladder strikes dated {args.date}")
-    if not cand:
-        print("  none - markets.list() may only return ACTIVE markets.")
-        print("  Try a date whose games are still listed, or use --dump on any")
-        print("  market to see whether a resolution field exists at all.")
-        if args.dump and mkts:
-            print("\nraw fields of one market:")
-            print(json.dumps(mkts[0], indent=1)[:1500])
-        c.close()
-        return
-
-    if args.dump:
-        print("\nraw fields of one settled ladder strike:")
-        print(json.dumps(cand[0][3], indent=1)[:2000])
-        print("\n  ^ look for a resolution / outcome / settlementPrice field.")
-
-    # actual results from ESPN
-    boards = {}
-    results = {}
-    for slug, base, k, m in cand:
-        parsed = parse_slug(base.replace("asc-", "aec-", 1))
-        if not parsed:
-            continue
-        sport, _t, d = parsed
-        path = SPORT_PATHS.get(sport)
-        if not path:
-            continue
-        key = (path, d.replace("-", ""))
-        if key not in boards:
-            try:
-                boards[key] = scoreboard(path, date=key[1])
-            except Exception:
-                boards[key] = []
+    if args.slug:
+        for params in ({"slug": args.slug}, {"market_slug": args.slug},
+                       {"slugs": args.slug}, {"marketSlug": args.slug}):
+            got = fetch(c, **params)
+            hit = [m for m in got
+                   if (m.get("marketSlug") or m.get("slug")) == args.slug]
+            if hit:
+                show(hit[0])
+                c.close()
+                return
             time.sleep(0.3)
-        g = match_game(base.replace("asc-", "aec-", 1), boards[key])
-        if not g:
-            continue
-        sc = {t["home_away"]: t.get("score") for t in g["teams"]}
-        try:
-            results[base] = (int(sc["home"]), int(sc["away"]), g["short"])
-        except (KeyError, TypeError, ValueError):
-            continue
+        print(f"could not fetch {args.slug} by any filter spelling; paging instead")
 
-    if not results:
-        print("\ncould not match any of these games on ESPN - cannot verify.")
+    # page through, collecting anything that is not a moneyline
+    seen, spreads, token = {}, [], None
+    for page in range(args.pages):
+        params = {"limit": 100}
+        if token:
+            params["page_token"] = token
+        got = fetch(c, **params)
+        if not got:
+            break
+        for m in got:
+            sl = m.get("marketSlug") or m.get("slug")
+            if sl and sl not in seen:
+                seen[sl] = m
+                mt = f"{m.get('marketType')} {m.get('sportsMarketType')}".lower()
+                if "spread" in mt or "handicap" in mt or (sl or "").startswith("asc-"):
+                    spreads.append(m)
+        token = None
+        time.sleep(0.3)
+        if len(got) < 100:
+            break
+
+    from collections import Counter
+    types = Counter(f"{m.get('marketType')}/{m.get('sportsMarketType')}"
+                    for m in seen.values())
+    print(f"\n{len(seen)} distinct markets seen. types: "
+          + ", ".join(f"{k}({v})" for k, v in types.most_common(8)))
+
+    if not spreads:
+        print("\nNo spread market in the listing. Pass one explicitly:")
+        print("  make verify VSLUG=asc-cfb-clmsn-cah-2026-09-25-neg-0pt5")
+        if seen:
+            print("\nshowing a moneyline for reference (its rule is unambiguous):")
+            show(next(iter(seen.values())))
         c.close()
         return
 
-    print(f"\nmatched {len(results)} games on ESPN")
-    print(f"\n{'strike':>8} {'settled':>9} {'margin':>8} {'>-line?':>9} "
-          f"{'agrees':>7}  market")
-    agree = disagree = unknown = 0
-    for slug, base, k, m in cand[: args.max_markets]:
-        if base not in results:
-            continue
-        home, away, short = results[base]
-        # the ladder's reference team is unknown, so test BOTH orientations
-        settled = None
-        for field in ("settlementPrice", "resolutionPrice", "outcomePrice",
-                      "finalPrice", "lastPrice", "currentPx"):
-            v = px(m.get(field))
-            if v is not None:
-                settled = v
-                break
-        if settled is None:
-            unknown += 1
-            continue
-        for margin in (home - away, away - home):
-            expect = 1.0 if margin > -k else 0.0
-            ok = abs(settled - expect) < 0.05
-            if ok:
-                agree += 1
-                print(f"  {k:>+7.1f} {settled:>9.3f} {margin:>+8d} "
-                      f"{expect:>9.0f} {'YES':>7}  {slug[8:44]}")
-                break
-        else:
-            disagree += 1
-            margin = home - away
-            print(f"  {k:>+7.1f} {settled:>9.3f} {margin:>+8d} "
-                  f"{'-':>9} {'NO':>7}  {slug[8:44]}")
-        time.sleep(args.pause * 0)
-
-    print(f"\n  agree {agree}   disagree {disagree}   no settlement field {unknown}")
-    if unknown and not agree and not disagree:
-        print("  The API exposes no settlement price on these markets. Re-run with")
-        print("  --dump to see what it does return, then verify from a live")
-        print("  position's realised P&L instead.")
-    elif disagree == 0 and agree:
-        print("  CONFIRMED: every settled strike matches 'pays iff margin > -line'.")
-        print("  The sign convention the bot uses is correct.")
-    elif disagree:
-        print("  MISMATCH. Do not trade until this is understood - the pairs")
-        print("  would be inverted, and a 'risk-free' pair would lose by design.")
+    pool = [m for m in spreads if m.get("closed")] if args.settled else spreads
+    for m in (pool or spreads)[:3]:
+        show(m)
+    print("\nRead the DESCRIPTION above. It states what the line means, which is")
+    print("the one thing this project has been inferring from price shape.")
     c.close()
 
 
