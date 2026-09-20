@@ -98,20 +98,30 @@ def _phi(x):
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
 
 
-def implied_margin(spread, p_favourite, fallback_sigma=14.6):
-    """(mu, sigma) of the favourite's margin, from spread and de-vigged ML.
+def implied_margin(espn_spread, p_ref, ref_is_home, fallback_sigma=14.6):
+    """(mu, sigma) of the REFERENCE team's margin.
 
-    mu is the spread. sigma follows from P(margin > 0) = Phi(mu/sigma). When
-    the moneyline is missing or the spread is ~0 the SD is unidentifiable, so
-    it falls back to the empirical value rather than inventing one.
+    ESPN's `spread` is the HOME line - verified on LSU @ MISS, where spread=3.0
+    with "LSU -3" and the de-vigged home probability 0.4279 reproduces
+    Phi(-3/16.5) exactly. So E[home margin] = -spread, and the away team's is
+    its negation.
+
+    Which side the LADDER is written from therefore decides the sign of every
+    fair value on it, and the ladder follows the FIRST slug token (proved by
+    the venue's own rules text: asc-cfb-clmsn-cah resolves on Clemson). Getting
+    this backwards inverts the whole ladder, which is exactly the failure that
+    produced nine fake arbitrages earlier in this project.
+
+    sigma comes from P(margin > 0) = Phi(mu/sigma) and is SIGN-FREE, so it is
+    derived from magnitudes and cannot be flipped by this convention.
     """
-    mu = abs(float(spread))
-    if p_favourite is None or abs(mu) < 0.5:
+    mu = (-float(espn_spread)) if ref_is_home else float(espn_spread)
+    if p_ref is None or abs(mu) < 0.5:
         return mu, fallback_sigma
-    z = _ndf_inv(min(max(p_favourite, 0.51), 0.999))
-    if z <= 1e-6:
+    z = _ndf_inv(min(max(p_ref, 0.001), 0.999))
+    if abs(z) <= 1e-6:
         return mu, fallback_sigma
-    sigma = mu / z
+    sigma = abs(mu) / abs(z)
     return mu, min(max(sigma, 6.0), 30.0)
 
 
@@ -138,7 +148,7 @@ def fair_strike(line, mu, sigma, league="cfb", lumpy=True):
     return min(max(base + adj * 0.15, 0.001), 0.999)
 
 
-def fair_ladder(lines, spread, p_fav, league="cfb"):
+def fair_ladder(lines, espn_spread, p_ref, ref_is_home, league="cfb"):
     """{line: fair price} for every strike, from one external line."""
-    mu, sigma = implied_margin(spread, p_fav)
+    mu, sigma = implied_margin(espn_spread, p_ref, ref_is_home)
     return {L: fair_strike(L, mu, sigma, league) for L in lines}, mu, sigma

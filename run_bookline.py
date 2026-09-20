@@ -137,13 +137,27 @@ def main():
     if spread is None:
         raise SystemExit(f"no bookmaker line published for {g['short']}")
 
-    # the ladder is written from ONE team; decide which by the slug order
+    # The ladder resolves on the FIRST slug token's team (the venue's own rules
+    # text: asc-cfb-clmsn-cah settles on Clemson). Which side that is decides
+    # the sign of every fair value, so establish it rather than assume.
+    from src.pm_us.feed import _team_score
+    tokens = parse_slug(args.game.replace("asc-", "aec-", 1))[1]
     home = next((t for t in g["teams"] if t["home_away"] == "home"), {})
-    fav_is_home = (p_home or 0) >= (p_away or 0)
-    p_fav = max(p_home or 0, p_away or 0)
+    away = next((t for t in g["teams"] if t["home_away"] == "away"), {})
+    ref_tok = tokens[0] if tokens else ""
+    sh, sa = _team_score(ref_tok, home), _team_score(ref_tok, away)
+    if sh == sa:
+        raise SystemExit(f"cannot tell which side '{ref_tok}' is "
+                         f"(home={home.get('abbrev')} away={away.get('abbrev')}). "
+                         f"Refusing to price a ladder whose sign is unknown.")
+    ref_is_home = sh > sa
+    p_ref = (p_home if ref_is_home else p_away)
+    ref_name = (home if ref_is_home else away).get("location") or ref_tok
     print(f"{args.game}")
-    print(f"  ESPN/{provider}: spread {spread}  P(home)={p_home:.3f} "
-          f"P(away)={p_away:.3f}  favourite={'home' if fav_is_home else 'away'}")
+    print(f"  ESPN/{provider}: home line {spread:+}  P(home)={p_home:.3f} "
+          f"P(away)={p_away:.3f}")
+    print(f"  ladder resolves on '{ref_tok}' = {ref_name} "
+          f"({'home' if ref_is_home else 'away'}), P={p_ref:.3f}")
 
     want = sorted(sorted(ks, key=lambda k: abs(k))[: args.near])
     quotes = {}
@@ -159,8 +173,9 @@ def main():
         time.sleep(args.pause)
     c.close()
 
-    fl, mu, sigma = fair_ladder(list(quotes), abs(float(spread)), p_fav, args.league)
-    print(f"  implied margin ~ Normal({mu:.1f}, {sigma:.1f})\n")
+    fl, mu, sigma = fair_ladder(list(quotes), spread, p_ref, ref_is_home,
+                                args.league)
+    print(f"  {ref_name} margin ~ Normal({mu:+.1f}, {sigma:.1f})\n")
     print(f"  {'line':>7} {'bid':>7} {'ask':>7} {'fair':>7} {'buy edge':>9} "
           f"{'sell edge':>10}")
     rows = []
