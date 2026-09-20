@@ -80,19 +80,32 @@ def _subseq(short, long):
 
 
 def _team_score(token, team):
-    """How well a slug token identifies one competitor. Higher is better, 0 = no."""
+    """How well a slug token identifies one competitor. Higher is better, 0 = no.
+
+    Subsequence matching is only applied to the school name, never to the
+    mascot: 'sill' is a subsequence of "westernkentuckyHILLtoppers", which is
+    how Southern Illinois once matched Western Kentucky. It must also be
+    anchored on the first letter, or almost any short token matches almost
+    any long name.
+    """
     tok = _norm(token)
     if not tok:
         return 0
-    cands = [_norm(team.get(k)) for k in ("abbrev", "location", "name", "display")]
-    cands = [c for c in cands if c]
-    if tok in cands:
+    exact = [_norm(team.get(k)) for k in ("abbrev", "location", "display")]
+    exact = [c for c in exact if c]
+    if tok in exact:
         return 4
-    if any(c.startswith(tok) for c in cands):
+    if any(c.startswith(tok) for c in exact):
         return 3
-    # squeezed spellings: 'ohiost' -> 'ohiostate', 'clmsn' -> 'clemson'
-    if any(_subseq(tok, c) for c in cands):
-        return 2 if len(tok) >= 4 else 1
+    ab = _norm(team.get("abbrev"))
+    if ab and tok in ab:                      # 'ga' inside 'uga'
+        return 2
+    # squeezed spellings: 'ohiost' -> 'ohiostate', 'clmsn' -> 'clemson'.
+    # School name only, first letter must agree.
+    squeeze = [c for c in (_norm(team.get("location")), ab) if c]
+    anchored = [c for c in squeeze if c[0] == tok[0] and _subseq(tok, c)]
+    if anchored:
+        return 2 if len(tok) >= 4 else 1      # 'ga' <= 'georgia' is weak evidence
     return 0
 
 
@@ -106,7 +119,7 @@ def match_game(slug, games):
     if not parsed:
         return None
     _sport, tokens, date = parsed
-    best, best_score = None, 0
+    best, best_score, runner_up = None, 0, None
     for g in games:
         if g.get("date") and not str(g["date"]).startswith(date):
             continue
@@ -127,9 +140,16 @@ def match_game(slug, games):
             continue
         sc = max(pairings)
         if sc > best_score:
-            best, best_score = g, sc
+            best, best_score, runner_up = g, sc, None
+        elif sc == best_score and best is not None and g is not best:
+            runner_up = g
     # 4 = both sides matched at least on a squeezed spelling
-    return best if best_score >= 4 else None
+    if best_score < 4:
+        return None
+    # an ambiguous match is worse than none: it silently logs the wrong game
+    if runner_up is not None:
+        return None
+    return best
 
 
 def plays(event_id, sport_path):

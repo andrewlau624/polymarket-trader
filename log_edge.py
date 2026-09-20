@@ -45,8 +45,13 @@ def _writer(path):
     return write, fh
 
 
-def discover(client, hours=12):
-    """US markets whose slug matches a game ESPN has live or starting soon."""
+def discover(client, max_markets=6, pre_window_min=45):
+    """US markets whose slug matches a game that is live, or starting soon.
+
+    Bounded on purpose. An unbounded list once produced 84 markets polled once
+    a second against a 20 req/s limit, most of them games a week away with no
+    plays to timestamp. Live games sort first.
+    """
     slugs = []
     try:
         for p in client.all_programs():
@@ -75,9 +80,18 @@ def discover(client, hours=12):
                 boards[key] = []
             time.sleep(0.3)
         g = feed.match_game(slug, boards[key])
-        if g and g.get("state") in ("in", "pre"):
-            pairs.append((slug, g, path))
-    return pairs
+        if not g:
+            continue
+        state = g.get("state")
+        if state == "in":
+            pairs.append((0, slug, g, path))
+        elif state == "pre":
+            starts = feed.iso_to_epoch(g.get("date"))
+            if starts is None or starts - time.time() > pre_window_min * 60:
+                continue          # a game next Saturday produces nothing today
+            pairs.append((starts, slug, g, path))
+    pairs.sort(key=lambda r: r[0])      # live first, then soonest kickoff
+    return [(s, g, p) for _k, s, g, p in pairs[:max_markets]]
 
 
 def main():
@@ -87,6 +101,10 @@ def main():
     ap.add_argument("--book-interval", type=float, default=1.0, help="seconds between book polls")
     ap.add_argument("--event-interval", type=float, default=5.0, help="seconds between ESPN polls")
     ap.add_argument("--espn-only", action="store_true", help="skip the book (no API keys needed)")
+    ap.add_argument("--max-markets", type=int, default=6,
+                    help="cap the watch list (the venue allows ~20 req/s in total)")
+    ap.add_argument("--pre-window", type=float, default=45.0,
+                    help="minutes before kickoff to start watching a not-yet-live game")
     ap.add_argument("--out", default="research/us_edge_log.jsonl")
     args = ap.parse_args()
 
@@ -121,10 +139,18 @@ def main():
     else:
         if client is None:
             raise SystemExit("--espn-only needs --slugs (there is no venue to discover from)")
-        pairs = discover(client)
+        pairs = discover(client, max_markets=args.max_markets,
+                         pre_window_min=args.pre_window)
 
     if not pairs:
         raise SystemExit("nothing to watch (no live/upcoming game matched a market slug)")
+
+    # one book call per market per tick; keep total well under the 20 req/s cap
+    rps = len(pairs) / max(args.book_interval, 0.05)
+    if not args.espn_only and rps > 12:
+        args.book_interval = round(len(pairs) / 12.0, 2)
+        print(f"! {len(pairs)} markets at the requested interval is {rps:.0f} req/s; "
+              f"slowing book polls to every {args.book_interval}s")
 
     write, fh = _writer(args.out)
     print(f"watching {len(pairs)} market(s), logging to {args.out}")
@@ -184,11 +210,14 @@ def main():
         while any(t.is_alive() for t in threads):
             time.sleep(0.5)
     except KeyboardInterrupt:
-        print("\nstopping")
+        print("\nstopping…")
     finally:
         stop.set()
         for t in threads:
-            t.join(timeout=3)
+            try:
+                t.join(timeout=5)
+            except KeyboardInterrupt:
+                pass          # a second ^C should not print a traceback
         fh.close()
         if client is not None:
             client.close()

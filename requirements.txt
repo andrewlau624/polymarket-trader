@@ -6,3 +6,8 @@ py-clob-client>=0.17
 
 # Polymarket US (mm_bot_us.py) - CFTC-regulated, Ed25519 keys
 polymarket-us>=0.1.2
+
+# research tooling (run_calibration.py, analyze_lag.py, src/pm/history.py).
+# The bot itself does not need these; `make lag` failed on a bot-only venv.
+numpy>=1.24
+pandas>=2.0
