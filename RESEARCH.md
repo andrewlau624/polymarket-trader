@@ -458,6 +458,46 @@ What 24/7 does NOT buy: depth. At 1-2 shares per violation the constraint is
 capacity, not opportunities per hour. Running continuously across 43 ladders
 is how a few dollars of edge gets collected; it is not how it gets bigger.
 
+## 12. What actually binds: capital, not opportunities
+
+Each share of a pair ties up `buy_px + (1 - sell_px)` = **1 - credit**, i.e.
+about a dollar, until the game settles. The long leg has to be funded and the
+short leg can settle at 1 so it needs collateral. (If the venue nets the two
+legs the requirement is lower - that is the optimistic case, so budget for
+this one.)
+
+```
+sell 0.595 buy 0.555 -> credit 0.040, capital $0.96, return 4.2% to settlement
+sell 0.605 buy 0.570 -> credit 0.035, capital $0.97, return 3.6%
+sell 0.590 buy 0.565 -> credit 0.025, capital $0.98, return 2.6%
+sell 0.580 buy 0.570 -> credit 0.010, capital $0.99, return 1.0%
+```
+
+So the cap is not a risk dial, it is the whole business:
+
+```
+ $5 cap ->  5 share-pairs -> ~$0.15 locked per settlement cycle
+ $9 cap ->  9 share-pairs -> ~$0.27
+$50 cap -> 52 share-pairs -> ~$1.56
+```
+
+Two consequences:
+
+1. **Capital binds before depth does, in aggregate.** Any one violation is
+   1-2 shares, but there are dozens across 43 ladders. With $9 you can fund
+   about nine share-pairs total, so the scarce resource is dollars and the
+   bot must spend them on the best credits. It now demands a progressively
+   better edge as capital depletes, so a 0.005 violation early in a sweep
+   cannot eat the budget a 0.04 one needs later.
+2. **A 4% return to settlement is only good if settlement is soon.** These
+   games are days out. 4% over a week is excellent annualised and irrelevant
+   in absolute terms on $9.
+
+An earlier version of the bot tracked `deployed` in SHARES and compared it to
+a dollar cap, so `--max-capital 5` actually meant "5 shares". It was only
+close to right because a pair happens to cost about a dollar. Fixed to track
+dollars via `capital_per_share()`.
+
 ## 6. Rules
 
 * Anything new goes through the sealed holdout in `research/holdout.yaml`

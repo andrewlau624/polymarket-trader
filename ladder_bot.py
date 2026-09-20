@@ -154,6 +154,22 @@ def quotes_for(c, ks, want, pause):
     return q
 
 
+def capital_per_share(sell_px, buy_px):
+    """Dollars tied up by one share of the pair.
+
+    The long leg costs buy_px. The short leg can settle at 1, so it needs
+    (1 - sell_px) of collateral. Total = buy_px + 1 - sell_px = 1 - credit.
+    So a pair ties up about a dollar to lock its credit, and the return on
+    capital is credit / (1 - credit) - roughly 4% on a 0.04 credit, held
+    until the game settles.
+
+    This assumes the venue does NOT net the two legs. If it recognises the
+    spread the real requirement is lower and more pairs fit; that is the
+    optimistic case, so budget for this one.
+    """
+    return max(buy_px + (1.0 - sell_px), 0.01)
+
+
 def execute_pair(c, ks, credit, l1, l2, size, state, args):
     """Sell the harder leg, buy the easier one. Both or neither."""
     s1, s2 = ks[l1], ks[l2]
@@ -181,7 +197,7 @@ def execute_pair(c, ks, credit, l1, l2, size, state, args):
         return 0.0
     locked = credit * size
     state["realized"] += locked
-    state["deployed"] += size
+    state["deployed"] += capital_per_share(args.sell_px, args.buy_px) * size
     state["pairs"].append({"ts": now(), "sell": s1, "buy": s2,
                            "credit": credit, "size": size})
     log({"kind": "paired", "sell": s1, "buy": s2, "credit": credit,
@@ -196,7 +212,10 @@ def main():
     ap.add_argument("--yes", action="store_true", help="confirm the probe's real order")
     ap.add_argument("--live", action="store_true", help="place real orders")
     ap.add_argument("--max-capital", type=float, default=5.0,
-                    help="dollars of collateral to deploy in total")
+                    help="DOLLARS of collateral to deploy in total. Each share of "
+                         "a pair ties up about (1 - credit), so ~$1, until the game "
+                         "settles. Set it from your actual free cash: this is the "
+                         "binding constraint, not the number of violations.")
     ap.add_argument("--min-credit", type=float, default=0.01,
                     help="skip violations thinner than this")
     ap.add_argument("--min-size", type=int, default=1)
@@ -227,6 +246,10 @@ def main():
     state = load_state()
     print(f"ladder bot | {mode} | cap ${args.max_capital:.2f} | "
           f"min credit {args.min_credit:.3f} | sweep every {args.cycle_min:.0f}min")
+    print(f"  a pair ties up ~$1/share until settlement, so ${args.max_capital:.2f} "
+          f"funds roughly {int(args.max_capital):d} share-pairs.")
+    print(f"  at a typical 0.03 credit that is about "
+          f"${args.max_capital * 0.03:.2f} locked per cycle of capital.")
     if args.live:
         print("!! --live but the short leg has not been proven. Run --probe first "
               "if you have not.")
@@ -250,11 +273,20 @@ def main():
             for base, ks in games:
                 want = sorted(sorted(ks, key=lambda k: abs(k))[: args.near])
                 q = quotes_for(c, ks, want, args.pause)
+                # violations() is sorted best-credit-first, which matters:
+                # capital is scarce, so it must not be spent on 0.005 edges
+                # before a 0.04 one later in the same sweep.
+                room = args.max_capital - state["deployed"]
                 for credit, l1, l2, sz in violations(q):
                     if credit < args.min_credit or sz < args.min_size:
                         continue
-                    room = args.max_capital - state["deployed"] * 1.0
-                    size = int(min(sz, args.max_size, max(room, 0)))
+                    # as capital runs out, demand a better edge for what is left
+                    used = state["deployed"] / max(args.max_capital, 1e-9)
+                    if credit < args.min_credit * (1.0 + 3.0 * used):
+                        continue
+                    per_share = capital_per_share(q[l1]["bid"], q[l2]["ask"])
+                    afford = int(max(room, 0) / per_share)
+                    size = int(min(sz, args.max_size, afford))
                     if size < args.min_size:
                         continue
                     found += credit * size
