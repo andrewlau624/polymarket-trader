@@ -18,7 +18,8 @@ LOG = os.path.join("research", "ladder_trades.jsonl")
 def main():
     path = sys.argv[1] if len(sys.argv) > 1 else LOG
     if not os.path.exists(path):
-        raise SystemExit(f"no log at {path} - run `make ladder-dry` first")
+        print(f"no log at {path} - run `make ladder-dry` first")
+        return
     recs = []
     for line in open(path):
         line = line.strip()

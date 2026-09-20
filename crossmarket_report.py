@@ -19,7 +19,8 @@ LOG = os.path.join("research", "crossmarket.jsonl")
 def main():
     path = sys.argv[1] if len(sys.argv) > 1 else LOG
     if not os.path.exists(path):
-        raise SystemExit(f"no log at {path} - run `make crossmarket-bg` first")
+        print(f"no log at {path} - run `make crossmarket-bg` first")
+        return
     recs = []
     for line in open(path):
         line = line.strip()
