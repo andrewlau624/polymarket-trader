@@ -109,6 +109,24 @@ def _team_score(token, team):
     return 0
 
 
+def _date_ok(game_date, want, days=1):
+    """Is the game within `days` of the slug's date?
+
+    ESPN timestamps in UTC, so a US evening kickoff rolls into the next day -
+    CLEM @ CAL on Thursday 9/25 is 2026-09-26T02:30Z. An exact prefix test
+    therefore rejects exactly the prime-time games, which is most of them.
+    """
+    if not game_date:
+        return True
+    from datetime import date, timedelta
+    try:
+        gy, gm, gd = (int(x) for x in str(game_date)[:10].split("-"))
+        wy, wm, wd = (int(x) for x in str(want)[:10].split("-"))
+    except ValueError:
+        return True
+    return abs((date(gy, gm, gd) - date(wy, wm, wd)).days) <= days
+
+
 def match_game(slug, games):
     """Best ESPN game for a US market slug, or None when it is ambiguous.
 
@@ -121,7 +139,7 @@ def match_game(slug, games):
     _sport, tokens, date = parsed
     best, best_score, runner_up = None, 0, None
     for g in games:
-        if g.get("date") and not str(g["date"]).startswith(date):
+        if not _date_ok(g.get("date"), date):
             continue
         teams = g.get("teams") or []
         if len(teams) < 2:
@@ -144,12 +162,31 @@ def match_game(slug, games):
         elif sc == best_score and best is not None and g is not best:
             runner_up = g
     # 4 = both sides matched at least on a squeezed spelling
-    if best_score < 4:
-        return None
-    # an ambiguous match is worse than none: it silently logs the wrong game
-    if runner_up is not None:
-        return None
-    return best
+    if best_score >= 4 and runner_up is None:
+        return best
+    if best_score >= 4 and runner_up is not None:
+        return None          # ambiguous is worse than none
+
+    # FALLBACK: one squeezed-spelling token, if the date leaves it unique.
+    # Uniqueness is what makes this safe, not the score: 'clmsn' only
+    # reaches 2 against Clemson, but if it is the ONLY game that day with
+    # any matching team then there is nothing to confuse it with.
+    # Some slug abbreviations are simply unrecoverable - 'cah' is California,
+    # which shares no subsequence with it - so requiring BOTH tokens loses the
+    # whole game to one opaque code. A single strong match is safe as long as
+    # exactly one game on that date has it.
+    solo = []
+    for g in games:
+        if not _date_ok(g.get("date"), date):
+            continue
+        for t in (g.get("teams") or []):
+            if any(_team_score(tok, t) >= 2 for tok in tokens):
+                solo.append(g)
+                break
+    uniq = {id(g): g for g in solo}
+    if len(uniq) == 1:
+        return next(iter(uniq.values()))
+    return None
 
 
 def plays(event_id, sport_path):
