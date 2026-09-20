@@ -49,11 +49,25 @@ say "cycle start (mem cap ${MEM_MB}MB)"
 if [ -f research/ladder_bot.lock ]; then
   pid=$(cut -d' ' -f1 research/ladder_bot.lock 2>/dev/null)
   if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
-    say "another run is live (pid $pid); skipping"
-    exit 0
+    # A run that outlives its own timeout is wedged, not busy. Skipping
+    # forever means every later cycle silently does nothing - which is what
+    # happened when a pre-upgrade process held the lock for 20+ minutes while
+    # newer cycles queued up behind it and exited.
+    lock_age=$(( $(date +%s) - $(stat -c %Y research/ladder_bot.lock 2>/dev/null || echo 0) ))
+    if [ "$lock_age" -gt "${LOCK_MAX_AGE:-2100}" ]; then
+      say "run $pid has held the lock ${lock_age}s (over ${LOCK_MAX_AGE:-2100}s) - killing it"
+      kill "$pid" 2>/dev/null || true
+      sleep 3
+      kill -9 "$pid" 2>/dev/null || true
+      rm -f research/ladder_bot.lock
+    else
+      say "another run is live (pid $pid, ${lock_age}s); skipping"
+      exit 0
+    fi
+  else
+    say "clearing stale lock"
+    rm -f research/ladder_bot.lock
   fi
-  say "clearing stale lock"
-  rm -f research/ladder_bot.lock
 fi
 
 # 1. the proven trade: monotonicity pairs, one sweep
