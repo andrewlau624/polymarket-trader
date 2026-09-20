@@ -136,7 +136,7 @@ quiet:
 	@echo "stopped and disabled. `make run` re-enables the old MM bot."
 
 
-.PHONY: money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families keyvertical paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history keyvertical paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -292,6 +292,14 @@ keyvertical:
 # what market families exist at all (totals? UFC rounds? half/quarter ladders?)
 families:
 	$(LOAD) $(PY) run_crossmarket.py --families
+
+# snapshot the venue's market families and flag anything NEW. A ladder on a
+# nightly sport (NBA/NHL from late Oct) is what makes this a daily strategy.
+families-watch:
+	$(LOAD) $(PY) watch_families.py
+
+families-history:
+	@$(PY) watch_families.py --history
 
 ladder-report:
 	@$(PY) ladder_report.py
