@@ -152,6 +152,42 @@ This is why the bot now exits inventory instead of hoarding it
 (`--buy-only` means "never short", not "never sell") and caps cost basis per
 market (`MAX_INV`).
 
+## 7. Open: crypto binaries priced off spot
+
+    python run_digital.py --by-horizon       # BTC, calibration of the model
+
+Why this and not sports: the underlying is free, continuous and sub-second
+observable, so fair value is *computable* rather than guessed —
+`P(S_T > K) = N(d2)` — and it can be validated tonight against 67,539 hourly
+bars already on disk, instead of waiting weeks for match resolutions.
+
+`run_digital.py` deliberately does **not** backtest a strategy. It asks
+whether the model is calibrated, because a gap between an uncalibrated model
+and a market price tells you nothing about who is wrong.
+
+**Result so far: the model is not yet trustworthy.** Brier skill is +37.5%
+over a constant baseline, but actual outcomes run above model almost
+everywhere (+0.073 at 0.60-0.75). Two causes, separated by testing:
+
+1. **Drift.** Per-year error tracks BTC's return almost exactly: +0.065 in
+   2020 (+305%) against -0.021 in 2022 (-65%). A zero-drift model cannot
+   know the asset went up 20x, and "crypto goes up" is a macro bet, not a
+   pricing edge. Not tradeable.
+2. **Overstated volatility.** A residual +0.03-ish survives in every year
+   including the bear ones. It is under-confidence in *both* directions,
+   which is the signature of σ being too high — EWMA decays slowly after a
+   vol spike. `--vol-scale 0.8` flattens both tails (+0.066 → +0.032 mid,
+   -0.025 → +0.008 low) and improves Brier 0.1949 → 0.1939.
+
+A hypothesis that was **wrong**, recorded so it is not retried: the `-½σ²T`
+convexity term is not the cause. Removing it moves the mid bucket only
++0.066 → +0.062.
+
+**Do not trade this yet.** λ=0.8 was grid-searched on the same data that
+measured it, which is curve fitting. Before it prices anything: fit the vol
+estimator on one period, test on a disjoint one, and confirm the flattening
+survives. Only then is a market-vs-model gap evidence about the market.
+
 ## 6. Rules
 
 * Anything new goes through the sealed holdout in `research/holdout.yaml`
