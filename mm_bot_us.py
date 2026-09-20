@@ -481,6 +481,25 @@ class UsMarketMaker:
             print(f"  earnings failed: {type(e).__name__} {e}")
         print("\nNOTE: rewards land after the period ends (<=5 business days) + <=2 to credit.")
 
+    def _reference_retry(self, slug, attempts=4):
+        """reference() with backoff.
+
+        A single flaky read used to skip a position silently, which is how a
+        flatten reported different skips on two consecutive runs and left a
+        naked short open. Rate limiting is normal here; giving up after one
+        try is not.
+        """
+        for i in range(attempts):
+            try:
+                bid, ask, _b, _a = self.client.reference(slug)
+                if bid is not None or ask is not None:
+                    return bid, ask
+            except Exception:
+                pass
+            if i < attempts - 1:
+                time.sleep(1.0 * (2 ** i))
+        return None, None
+
     def flatten(self):
         """Post maker sells for every open position, unwinding inventory.
 
@@ -499,17 +518,15 @@ class UsMarketMaker:
             return
         print(f"== FLATTEN ({self.mode}) ==")
         proceeds = pnl_total = 0.0
+        skipped = []
         for slug, v in sorted(longs.items()):
             net, cost, _ = _position_row(v)
             qty = int(net)
-            try:
-                bid, ask, _bids, _asks = self.client.reference(slug)
-            except Exception as e:
-                print(f"  {slug[:38]:<38} book read failed: {type(e).__name__}")
-                continue
+            bid, ask = self._reference_retry(slug)
             price = ask if ask else (bid + self.args.tick if bid else None)
             if price is None:
-                print(f"  {slug[:38]:<38} no price available - skipped")
+                print(f"  {slug[:38]:<38} NO PRICE after retries - still open")
+                skipped.append(slug)
                 continue
             price = round(min(0.99, max(0.01, price)), 3)
             avg = cost / qty if qty else 0.0
@@ -530,14 +547,11 @@ class UsMarketMaker:
         for slug, v in sorted(shorts.items()):
             net, cost, _ = _position_row(v)
             qty = int(abs(net))
-            try:
-                bid, ask, _b, _a = self.client.reference(slug)
-            except Exception as e:
-                print(f"  {slug[:38]:<38} book read failed: {type(e).__name__}")
-                continue
+            bid, ask = self._reference_retry(slug)
             price = ask if ask else (bid if bid else None)
             if price is None:
-                print(f"  {slug[:38]:<38} no price available - skipped")
+                print(f"  {slug[:38]:<38} NO PRICE after retries - STILL SHORT")
+                skipped.append(slug)
                 continue
             price = round(min(0.99, max(0.01, price)), 3)
             got = abs(cost) / qty if qty else 0.0
@@ -556,8 +570,16 @@ class UsMarketMaker:
             pnl_total += pnl
 
         print(f"\n  proceeds if all fill: ${proceeds:,.2f}   P&L ${pnl_total:+,.2f}")
+        if skipped:
+            print(f"\n  !! {len(skipped)} POSITION(S) NOT FLATTENED - re-run to clear:")
+            for sl in skipped:
+                print(f"     {sl}")
+            print("  A short left open here is a naked directional bet.")
         if self.mode != "live":
             print("  dry run - add --live (or use 'make flatten-live') to place these.")
+        else:
+            print("  Long sells REST at the ask; short buy-backs CROSS and should")
+            print("  fill at once. Re-run `make account` to confirm what actually went.")
 
 
     def hunt(self):

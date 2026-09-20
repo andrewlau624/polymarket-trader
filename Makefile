@@ -133,7 +133,7 @@ flatten:
 	$(LOAD) $(PY) mm_bot_us.py --flatten
 
 flatten-live:
-	@echo "posting post-only sells at the best ask for every long position…"
+	@echo "long positions: resting sells at the ask. short positions: crossing buy-backs."
 	$(LOAD) $(PY) mm_bot_us.py --flatten --live
 	@echo ""
 	@echo "they rest until filled. 'make account' to check, 'make cancel' to pull them."
