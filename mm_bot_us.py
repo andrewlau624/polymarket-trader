@@ -551,10 +551,15 @@ class UsMarketMaker:
             net, cost, _ = _position_row(v)
             qty = int(net)
             bid, ask = self._reference_retry(slug)
-            # resting at the ask costs nothing but may never fill on a thin
-            # book; crossing at the bid exits now and pays the spread. Which is
-            # right depends on whether the capital is needed.
-            if self.args.cross:
+            # Resting at the ask costs nothing but may never fill on a thin
+            # book; crossing at the bid exits now and pays the spread. The right
+            # answer is per position, not per run: on this account three markets
+            # cost 0.9-1.6% to cross while a fourth cost 37.5%, so an
+            # all-or-nothing flag would either strand $15 of capital or throw
+            # $1.77 away. Cross where the spread is tight, rest where it is not.
+            rel = ((ask - bid) / ask) if (bid and ask and ask > 0) else 1.0
+            do_cross = self.args.cross and rel <= self.args.cross_max_pct
+            if do_cross:
                 price = bid if bid else ask
             else:
                 price = ask if ask else (bid + self.args.tick if bid else None)
@@ -572,16 +577,20 @@ class UsMarketMaker:
             spread_note = ""
             if bid is not None and ask is not None:
                 give = (ask - bid) * qty
-                spread_note = (f" [bid {bid:.3f}/ask {ask:.3f}; crossing costs "
-                               f"${give:.2f}]")
+                if self.args.cross:
+                    spread_note = (f" [{rel:.1%} spread -> "
+                                   f"{'CROSS' if do_cross else 'REST'}"
+                                   f", crossing would cost ${give:.2f}]")
+                else:
+                    spread_note = (f" [bid {bid:.3f}/ask {ask:.3f}; crossing "
+                                   f"costs ${give:.2f}]")
             note = (f"{qty:>5} @ {price:.3f}  (avg {avg:.3f}, P&L ${pnl:+.2f})"
                     f"  {slug[:34]}{spread_note}")
             if self.mode != "live":
                 print(f"  would sell {note}")
                 continue
             try:
-                self.client.place(slug, "sell", price, qty,
-                                  maker=not self.args.cross)
+                self.client.place(slug, "sell", price, qty, maker=not do_cross)
                 print(f"  sell       {note}")
             except Exception as e:
                 print(f"  {slug[:38]:<38} sell failed: {type(e).__name__} {str(e)[:70]}")
@@ -1052,8 +1061,12 @@ def main():
                          "(0 = no cap). Keeps cash from turning into a pile of "
                          "one-sided directional bets.")
     ap.add_argument("--cross", action="store_true",
-                    help="exit NOW at the bid instead of resting at the ask. "
-                         "Pays the spread; frees the capital immediately.")
+                    help="exit NOW at the bid instead of resting at the ask, for "
+                         "positions whose spread is tight. Frees the capital today.")
+    ap.add_argument("--cross-max-pct", type=float, default=0.10,
+                    help="only cross when the spread is within this fraction of "
+                         "the price (default 0.10). A 37%% spread on a longshot "
+                         "costs more than the position is worth, so those rest.")
     ap.add_argument("--flatten", action="store_true",
                     help="post maker sells for every long position and exit "
                          "(dry run unless --live is also passed)")
