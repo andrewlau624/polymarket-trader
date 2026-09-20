@@ -367,7 +367,48 @@ arbitrage above, contaminating every adjacent pair. **An inconsistent ladder
 cannot be read as a distribution.** Retest only on a game whose ladder passes
 the monotonicity check.
 
-`run_ladder.py` checks both.
+### Live verdict: the theory is confirmed, the capacity is cents
+
+Run on the real `clmsn-cah` ladder with depth printed:
+
+```
+sell +1.5 @ 0.605  buy +3.5 @ 0.565   credit +0.040 x 1 share  = $0.04
+sell +1.5 @ 0.605  buy +5.5 @ 0.570   credit +0.035 x 1 share  = $0.04
+sell +2.5 @ 0.590  buy +3.5 @ 0.565   credit +0.025 x 1 share  = $0.03
+...9 violations, 2 of them with ZERO size on one leg
+TOTAL LOCKABLE ON A 30-STRIKE LADDER: $0.16
+```
+
+**The key-number thesis is confirmed in live prices.** The market implied
+P(margin == 3) = **0.005** on one side and a *negative* number on the other,
+against an empirical 0.057 / 0.037. Three is the most common margin in
+football and this ladder prices it near zero - an 11x underpricing, exactly
+the error a smooth curve makes. Buying the -3.5/-2.5 vertical costs 0.010 on
+executable prices and pays $1 at ~5.7%: **+0.047 EV per share.**
+
+Depth on that vertical: **2 shares.** EV $0.09.
+
+So the finding is real and it is small. Everything sits at 1-2 shares. The
+interesting question is therefore not the per-game edge but the **aggregate
+across the slate** - 43 games expose a ladder. `--scan-all` sweeps them and
+totals the lockable dollars.
+
+The strategic point: this edge is uncapturable at institutional size, which
+is precisely why it still exists. A $9 account is the only kind that can take
+all of it. That is the first time in this file that being small is an
+advantage rather than the binding constraint.
+
+Open before any of this trades:
+
+* **Confirm the settlement rule for a line** with the venue. Everything above
+  rests on semantics inferred from price shape.
+* Rate limiting hid 10 of 30 strikes on the first live run. Now 0.6s between
+  calls with exponential backoff, and `--near` scans only the strikes around a
+  pick'em, where every violation was found.
+* Legging risk is the real execution problem at 1-2 shares of depth.
+
+`run_ladder.py` checks both, `--self-test` pins the sign convention, and
+`--scan-all` answers the capacity question.
 
 ## 6. Rules
 

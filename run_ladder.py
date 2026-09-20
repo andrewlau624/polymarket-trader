@@ -74,6 +74,14 @@ def main():
     ap.add_argument("--league", default="cfb", choices=("cfb", "nfl"))
     ap.add_argument("--min-strikes", type=int, default=3)
     ap.add_argument("--cost", type=float, default=0.02, help="round-trip, both legs")
+    ap.add_argument("--pause", type=float, default=0.6,
+                    help="seconds between book calls; 0.25 still hit RateLimitError")
+    ap.add_argument("--near", type=int, default=0,
+                    help="only fetch the N strikes closest to a pick'em. Violations "
+                         "cluster there and it cuts the call count by 3x.")
+    ap.add_argument("--scan-all", action="store_true",
+                    help="sweep every game's ladder and rank by lockable dollars")
+    ap.add_argument("--max-games", type=int, default=12)
     args = ap.parse_args()
 
     from src.pm_us.client import UsClient   # only the live path needs the SDK
@@ -99,19 +107,30 @@ def main():
             print("\npass --slug-prefix <base> to analyse one.")
             return
 
+    if args.scan_all:
+        return scan_all(c, ladders, args)
+
     ks = ladders.get(args.slug_prefix)
     if not ks:
         raise SystemExit(f"no ladder found for {args.slug_prefix!r} (try --list)")
 
     print(f"\n{args.slug_prefix}: {len(ks)} strikes. EXECUTABLE prices; "
           f"pays iff margin > -line.")
+    want = sorted(ks)
+    if args.near:
+        want = sorted(sorted(want, key=lambda k: abs(k))[: args.near])
     quotes = {}
-    for i, k in enumerate(sorted(ks)):
-        try:
-            bids, asks, _state = c.book_levels(ks[k])
-        except Exception as e:
-            print(f"  {k:>+7.1f}  book failed: {type(e).__name__}")
-            time.sleep(0.6)
+    for i, k in enumerate(want):
+        bids = asks = None
+        for attempt in range(4):        # the SDK gives up after its own 4 tries
+            try:
+                bids, asks, _state = c.book_levels(ks[k])
+                break
+            except Exception as e:
+                if attempt == 3:
+                    print(f"  {k:>+7.1f}  book failed: {type(e).__name__}")
+                time.sleep(1.5 * (2 ** attempt))
+        if bids is None and asks is None:
             continue
         b = (bids[0][0], bids[0][1]) if bids else (None, 0)
         a = (asks[0][0], asks[0][1]) if asks else (None, 0)
@@ -119,7 +138,7 @@ def main():
         sp = (a[0] - b[0]) if (b[0] is not None and a[0] is not None) else float("nan")
         print(f"  {k:>+7.1f}  bid {str(b[0]):>6} x{b[1]:>7.0f}   "
               f"ask {str(a[0]):>6} x{a[1]:>7.0f}   spread {sp:.3f}")
-        time.sleep(0.25)          # the venue rate-limits around 20 req/s
+        time.sleep(args.pause)
 
     report(quotes, args.league, args.cost)
 
@@ -190,6 +209,63 @@ def report(quotes, league, cost):
     print("\n  actual splits P(|margin|=k) by the market's win probability, which")
     print("  assumes the conditional split equals the unconditional one. Crude for")
     print("  a heavy favourite; fine near a pick'em.")
+
+
+def violations(quotes):
+    """(credit, low line, high line, shares) for every executable violation."""
+    out, ks = [], sorted(quotes)
+    for i, l1 in enumerate(ks):
+        q1 = quotes[l1]
+        if q1["bid"] is None or q1["bid_sz"] <= 0:
+            continue
+        for l2 in ks[i + 1:]:
+            q2 = quotes[l2]
+            if q2["ask"] is None or q2["ask_sz"] <= 0:
+                continue
+            credit = q1["bid"] - q2["ask"]
+            if credit > 1e-9:
+                out.append((credit, l1, l2, min(q1["bid_sz"], q2["ask_sz"])))
+    return sorted(out, reverse=True)
+
+
+def scan_all(c, ladders, args):
+    """Sweep the slate. The question is aggregate capacity, not per-game edge."""
+    games = [(b, ks) for b, ks in ladders.items() if len(ks) >= args.min_strikes]
+    games.sort(key=lambda kv: -len(kv[1]))
+    games = games[: args.max_games]
+    n_calls = sum(min(len(ks), args.near or len(ks)) for _b, ks in games)
+    print(f"sweeping {len(games)} ladders, ~{n_calls} book calls at {args.pause}s "
+          f"= ~{n_calls * args.pause / 60:.1f} min\n")
+    total = 0.0
+    rows = []
+    for base, ks in games:
+        want = sorted(ks)
+        if args.near:
+            want = sorted(sorted(want, key=lambda k: abs(k))[: args.near])
+        q = {}
+        for k in want:
+            for attempt in range(4):
+                try:
+                    bids, asks, _s = c.book_levels(ks[k])
+                    q[k] = {"bid": bids[0][0] if bids else None,
+                            "bid_sz": bids[0][1] if bids else 0,
+                            "ask": asks[0][0] if asks else None,
+                            "ask_sz": asks[0][1] if asks else 0}
+                    break
+                except Exception:
+                    time.sleep(1.5 * (2 ** attempt))
+            time.sleep(args.pause)
+        v = violations(q)
+        lock = sum(cr * sz for cr, _a, _b, sz in v)
+        total += lock
+        rows.append((lock, base, len(v), len(q)))
+        print(f"  ${lock:>6.2f}  {len(v):>3} violations  {len(q):>3}/{len(want)} strikes "
+              f"read   {base}")
+    print(f"\n  TOTAL LOCKABLE ACROSS {len(games)} LADDERS: ${total:.2f}")
+    print(f"  Against a ${9:.0f} account that is the number that matters. This edge")
+    print(f"  is uncapturable at size, which is exactly why it is still here -")
+    print(f"  and a small account is the only kind that can take all of it.")
+    return rows
 
 
 FIXTURE = {   # real clmsn-cah quotes, 2026-09-19

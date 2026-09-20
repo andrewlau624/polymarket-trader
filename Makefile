@@ -47,13 +47,15 @@ TAPE_CAT  ?= Sports  # category for `make tape` (Sports, Crypto, Politics, LoL, 
 TAPE_EVENTS ?= 300
 LEAGUE    ?= cfb   # cfb | nfl, for `make keynumbers` and `make ladder`
 GAME      ?=       # e.g. asc-cfb-clmsn-cah-2026-09-25 for `make ladder`
+NEAR      ?= 12    # strikes nearest a pick'em to scan (violations cluster there)
+GAMES     ?= 12    # ladders to sweep in `make ladder-scan`
 EDGE_LOG  ?= research/us_edge_log.jsonl
 
 # makes API keys from ENVFILE available to any recipe line
 LOAD = set -a; . $(ENVFILE) 2>/dev/null || true; set +a;
 
 .DEFAULT_GOAL := help
-.PHONY: help setup pull check hunt account cancel flatten flatten-live calibrate tape watch lag scores keynumbers ladder ladder-test paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: help setup pull check hunt account cancel flatten flatten-live calibrate tape watch lag scores keynumbers ladder ladder-test ladder-scan paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -90,6 +92,7 @@ help:
 	@echo "  make scores          cache historical NFL/CFB finals from ESPN"
 	@echo "  make keynumbers      how lumpy football margins really are"
 	@echo "  make ladder          spread-ladder shape on the live venue (GAME=<base>)"
+	@echo "  make ladder-scan     sweep every ladder, total the lockable dollars"
 	@echo ""
 	@echo "  knobs: SIZE=$(SIZE) contracts/order  MARKETS=$(MARKETS)  MAX_INV=\$$$(MAX_INV)/market  BUY BAND=$(MIN_PX)-$(MAX_PX)"
 	@echo "         MIN_POOL=$(MIN_POOL)  MAX_TARGET=$(MAX_TARGET)  PERIOD=$(PERIOD)  ENDING_WITHIN=$(ENDING_WITHIN)"
@@ -165,6 +168,10 @@ ladder:
 
 ladder-test:
 	$(PY) run_ladder.py --self-test
+
+# sweep every game's ladder and total the lockable dollars
+ladder-scan:
+	$(LOAD) $(PY) run_ladder.py --league $(LEAGUE) --scan-all --near $(NEAR) --max-games $(GAMES)
 
 # ---------- live ---------------------------------------------------------
 
