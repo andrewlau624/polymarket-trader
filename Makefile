@@ -114,6 +114,10 @@ rules:
 quiet:
 	-@$(MAKE) --no-print-directory ladder-kill
 	-@$(MAKE) --no-print-directory stop 2>/dev/null || true
+	@echo "disabling services so they do not return on boot…"
+	-@sudo systemctl disable $(LIVE_SVC) 2>/dev/null || true
+	-@sudo systemctl disable $(PAPER_SVC) 2>/dev/null || true
+	@echo "stopped and disabled. `make run` re-enables the old MM bot."
 
 
 .PHONY: money find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families keyvertical paper live-test run stop restart status logs logs-paper results report install-services
@@ -307,6 +311,7 @@ stop:
 	-@sudo systemctl stop $(LIVE_SVC) 2>/dev/null || true
 	-@sudo systemctl stop $(PAPER_SVC) 2>/dev/null || true
 	@echo "stopped. (all resting orders were cancelled)"
+	@echo "NOTE: still ENABLED, so it returns on reboot. `make quiet` disables it."
 
 restart:
 	@sudo systemctl restart $(LIVE_SVC)

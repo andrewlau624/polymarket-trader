@@ -34,7 +34,7 @@ answers it by how much buying power a pair consumes.
     make trade      place ONE bounded live trade ($2, 3 ladders, ~30s)
     make out        cancel orders + exit positions. DRY RUN.
     make out-live   same, for real
-    make quiet      stop every bot
+    make quiet      stop every bot AND disable it (survives reboot)
     make rules VSLUG=<slug>   what a market actually settles on
 
 Normal loop: `make find`, wait an hour, `make found`, then `make trade` if
@@ -78,6 +78,19 @@ Research, no venue needed:
     make calibrate      price vs realised win rate on the cached tape
     make ladder-test    self-test: asserts the sign convention
     make keyvertical GAME=<base>   exact-margin bets, ~100:1 payoff
+
+## The old MM bot is still enabled
+
+`pm-us-live.service` runs the reward-farming strategy — the one that cost ~$16
+and earned $0.00 credited. `make stop` stops it but leaves it **enabled**, so a
+reboot brings it back, and the installed unit is stale: no `--max-inventory`
+and no `--min-price`, so it accumulates longshots without a cap using the same
+buying power the ladder pairs need.
+
+    make quiet      # stops AND disables both services
+
+Only `make run` re-enables it, and that regenerates the unit with the current
+flags. Do not run it unless you mean to farm rewards again.
 
 ## Timing
 
