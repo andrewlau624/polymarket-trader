@@ -335,7 +335,12 @@ def main():
                          "depth and not this number echoed back.")
     ap.add_argument("--near", type=int, default=12,
                     help="strikes nearest a pick'em to scan; violations cluster there")
-    ap.add_argument("--min-strikes", type=int, default=6)
+    ap.add_argument("--min-strikes", type=int, default=2,
+                    help="a monotonicity violation needs only TWO rungs - "
+                         "bid(L1) > ask(L2) for L1 < L2. The old default of 6 "
+                         "skipped small ladders, which is exactly the shape of "
+                         "the sub-period (1h/1q/4q) markets that settle in "
+                         "hours and are the only intra-day turnover available.")
     ap.add_argument("--pause", type=float, default=0.6, help="seconds between book calls")
     ap.add_argument("--cycle-min", type=float, default=20.0,
                     help="minutes between full sweeps of the slate")
@@ -435,7 +440,9 @@ def main():
                 print(f"inventory failed: {type(e).__name__} {e}; retrying")
                 time.sleep(30)
                 continue
-            print(f"\n[{now()[:19]}] {len(ladders)} ladders | sports: "
+            subs = sum(1 for b in ladders if sub_period(b))
+            print(f"\n[{now()[:19]}] {len(ladders)} ladders "
+                  f"({subs} sub-period, settle intra-game) | sports: "
                   + ", ".join(f"{k}({v})" for k, v in sorted(sports.items(),
                                                              key=lambda kv: -kv[1])))
             hits = past_hits()

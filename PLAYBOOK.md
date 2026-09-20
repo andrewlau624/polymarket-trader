@@ -94,6 +94,28 @@ buying power the ladder pairs need.
 Only `make run` re-enables it, and that regenerates the unit with the current
 flags. Do not run it unless you mean to farm rewards again.
 
+## How often this actually trades
+
+On Polymarket US the only ladders are college football, so:
+
+* **Finding and placing pairs: any day.** Every violation found so far was on
+  a game days out, so forward ladders are mispriced all week. The scanner is
+  worth running continuously.
+* **Settlement: Thursday to Saturday.** Capital is locked until the games
+  resolve, so it turns over about weekly.
+* **Sub-period ladders (1h/1q/2h/2q/3q/4q) settle intra-game** and are the only
+  intra-day turnover on the venue. They are small - a 4q spread spans a few
+  points - which is why `--min-strikes` is 2, not 6. Untested until a live
+  Saturday.
+
+Realistic shape: deploy Sun-Wed on forward ladders, collect Thu-Sat, with extra
+turns during Saturday from the sub-period books.
+
+There is no esports here and none is coming - esports has no spread markets
+anywhere (RESEARCH.md S20), so the ladder trade has nothing to work with. The
+one thing that would make this nightly is the venue listing ladders for a
+sport that plays nightly; `make families-watch` flags that the day it happens.
+
 ## Timing
 
 CFB plays **Thursday to Saturday**, and every ladder is CFB. So this is a

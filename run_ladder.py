@@ -74,7 +74,8 @@ def main():
     ap.add_argument("--slug-prefix", default="", help="one game's ladder")
     ap.add_argument("--list", action="store_true", help="list games that have a ladder")
     ap.add_argument("--league", default="cfb", choices=("cfb", "nfl"))
-    ap.add_argument("--min-strikes", type=int, default=3)
+    ap.add_argument("--min-strikes", type=int, default=2,
+                    help="two rungs is enough for a violation")
     ap.add_argument("--cost", type=float, default=0.02, help="round-trip, both legs")
     ap.add_argument("--pause", type=float, default=0.6,
                     help="seconds between book calls; 0.25 still hit RateLimitError")
