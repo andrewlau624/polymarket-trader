@@ -97,6 +97,25 @@ idea:
 repricing lag, abandon the latency thesis on this feed and do not try to
 optimise the code path. The problem is the feed, not the software.
 
+### Preliminary, n=2 — do not act on this yet
+
+A capture during the closing minutes of LSU @ MISS (2026-09-19) appended only
+two live plays before the game ended, with staleness of **66.7s and 33.8s**.
+Our poll interval was 4s, so that delay is ESPN's own publishing, not ours.
+
+If a full-game capture confirms ~30-60s, **the latency thesis is dead on the
+free feed**: a paid low-latency feed (Sportradar, Genius) is the only way to
+race a book, and that costs orders of magnitude more than this account.
+
+That would not kill the *divergence* thesis. A stale win probability is still
+usable if the market takes minutes to converge to the right level — slowness
+of the venue, not speed of the feed, is what that trade needs. Measure the
+gap's persistence, not its arrival time.
+
+**Next capture: a full game from kickoff**, both halves, with the book
+attached (drop `--espn-only`). n=2 at the end of a clock-stopped fourth
+quarter is an anecdote.
+
 ## 5. Settled: the rewards programme is not the business
 
 Two days of live quoting produced **$0.07 gross, $0.04 credited**, while
