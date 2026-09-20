@@ -51,6 +51,11 @@ NEAR      ?= 12    # strikes nearest a pick'em to scan (violations cluster there
 GAMES     ?= 25    # ladders to sweep per cycle
 CYCLE     ?= 20    # minutes between full sweeps in `make ladder-dry`
 TRIAL_CAP ?= 2     # $ for the first live trial
+# A trial needs ONE violation, not a full sweep. 3 games x 8 strikes is
+# ~30s instead of ~15min, which shrinks the window where a dropped session
+# could kill the process between the two legs of a pair.
+TRIAL_GAMES ?= 3
+TRIAL_NEAR ?= 8
 TRIAL_DAYS ?= 7    # window for the trial. CFB plays Thu-Sat, so 1 finds
                    # nothing on a Sunday; 7 reaches the next slate.
 RANK      ?= turnover  # turnover (return/day) | value (biggest credit)
@@ -254,8 +259,10 @@ ladder-trial:
 	@echo "LIVE. cap \$$$(TRIAL_CAP), one sweep, games settling within $(TRIAL_DAYS) day(s)."
 	@echo "Watch for [PAIRED] vs [failed]. Then: make account"
 	@echo "Afterwards, restart the scanner with: make ladder-bg"
+	@echo "RUN THIS INSIDE tmux: it places real orders and dies with your session."
 	$(LOAD) $(PY) ladder_bot.py --live --once --max-capital $(TRIAL_CAP) \
-	  --max-days $(TRIAL_DAYS) --near $(NEAR) --max-games $(GAMES) --min-credit $(MIN_CREDIT)
+	  --max-days $(TRIAL_DAYS) --near $(TRIAL_NEAR) --max-games $(TRIAL_GAMES) \
+	  --min-credit $(MIN_CREDIT)
 
 # ---------- live ---------------------------------------------------------
 
