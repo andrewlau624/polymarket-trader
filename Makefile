@@ -229,12 +229,8 @@ crossmarket-bg:
 	@echo "watch it with:  tail -f crossmarket.out"
 
 crossmarket-report:
-	@$(PY) -c "import json,os;p='research/crossmarket.jsonl';\
-rows=[json.loads(l) for l in open(p)] if os.path.exists(p) else [];\
-print(f'{len(rows)} records in {p}') or None;\
-[print('  TRADEABLE', r['game'], r['strike'], 'edge', r['edge'], r['shares'],'sh') for r in rows if r.get('tradeable')];\
-print('  (no tradeable gaps recorded)') if not any(r.get('tradeable') for r in rows) else None"
-	@tail -5 crossmarket.out 2>/dev/null || true
+	@$(PY) crossmarket_report.py
+	@tail -3 crossmarket.out 2>/dev/null || true
 
 # exact-margin verticals: small premium, ~100:1 payoff, REAL risk
 keyvertical:

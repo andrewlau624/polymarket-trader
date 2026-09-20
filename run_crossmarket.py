@@ -159,8 +159,10 @@ def main():
              "tradeable": bool(edge > args.cost),
              "shares": (min(mbs, las) if e1 >= e2 else min(lbs, mas)),
              "side": ("sell_ml_buy_ladder" if e1 >= e2 else "sell_ladder_buy_ml")})
+    # NOT "tradeable": pair records use that key as a boolean, and a summary
+    # carrying a truthy COUNT under the same name broke every reader.
     log({"kind": "summary", "games_checked": len(pairs[: args.max_games]),
-         "tradeable": found, "cost": args.cost})
+         "tradeable_count": found, "cost": args.cost})
     print(f"\n  {found} games priced their outright and their ladder's zero crossing")
     print(f"  more than {args.cost:.3f} apart. Both settle on the same event, so a")
     print(f"  gap is the same kind of free money as a monotonicity violation.")
