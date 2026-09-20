@@ -942,6 +942,77 @@ Kalshi is CFTC-regulated and worth checking - if it lists esports match
 markets, the calibration edge above is the thing to point at it, and it is
 already measured rather than hypothetical.
 
+## 21. What the public bots actually prove
+
+Researched: `polymm`, `skharchikov`, `ImMike/polymarket-arbitrage`,
+`BlackCandleLab`, `CarlosIbCu`, and the r/PredictionsMarkets thread.
+
+**Only one has real numbers.** `polymm`, public wallet: arb leg **+$8,293**,
+directional residual **-$3,184**, ~$5k net, dead of *"got too slow to defend
+its edge"*. It rested limit orders priced off bookmaker odds and informed flow
+picked them off - that residual IS adverse selection, 38% of gross.
+
+Everything else is unevidenced. `skharchikov` runs 29 features, a five-model
+stacking ensemble, LLM consensus and Bayesian anchoring, publishes **no
+performance figures at all**, paper-trades only, and blocks sports as
+unprofitable. `ImMike` reports "99.6% win rate, $573 profit" from a
+**simulation mode that generates its own mispricings**. Several repos are
+lead-generation shells pointing at a Telegram sales channel.
+
+The thread's useful claims: prices correct in 50-100ms against a 250ms taker
+delay, so nothing speed-based survives; *"the only ones on the leaderboards are
+market making pair arbitrage bots"*; and negative skew kills late-entry - one
+loss eats fifty wins.
+
+**Three of those independently validate the ladder trade.** It IS a
+market-making pair arbitrage. It needs no speed - violations stood 12 of 15
+across ten sweeps over hours, because they are structural inconsistencies
+nobody reconciles rather than an informational race. And a monotonicity pair
+has no losing state, so the skew that killed everyone is structurally zero.
+
+### Structures ruled out, with reasons
+
+* **Cross-venue (Polymarket vs Kalshi)** - excluded: Polymarket only.
+* **Bundle arb, YES+NO < $1** - impossible here. The venue quotes ONE book from
+  both ends: long ask 0.585 and "short" 0.420 sum to 1.005, which is exactly
+  `1 + spread`. Separately-traded legs are what make bundle arb possible and
+  this venue has none.
+* **Multi-outcome / negative-risk** - `run_multi.py` groups by the venue's own
+  event metadata rather than a slug regex, because the earlier check could only
+  see two-sided games and its "no group has more than one leg" was a statement
+  about the regex.
+* **Market making on spread** - `ImMike` wants a 5c spread; these ladders quote
+  0.005. Nothing to capture.
+
+## 22. The economics decide this, not the strategy
+
+`run_economics.py`, from measured inputs only:
+
+```
+hosting $18/mo -> net $-109.30/yr     capital needed to cover it: IMPOSSIBLE
+hosting $ 4/mo -> net $  58.70/yr
+hosting $ 0/mo -> net $ 106.70/yr
+```
+
+At $18/month the system **cannot** pay for itself at any capital, because the
+depth ceiling binds before capital does. Hosting is not overhead here, it is
+the deciding term, and moving it is the only *certain* improvement available.
+
+**It does not need a server.** The edge is slow, so a 20-minute daemon was
+paying for a persistent machine to rediscover the same opportunities 72 times a
+day. `cron_cycle.sh` runs four times daily on a free tier.
+
+Two throughput wins came out of that switch:
+
+* **Depth over frequency.** 4 runs x 25 games x 24 strikes is 2,400 calls/day
+  against the daemon's 10,368 - **77% fewer** - while covering **4.2x** more
+  board per sweep. Every violation ever found sat within ~6 points of the
+  money, which is precisely what `--near 12` scanned. The wings are unexamined.
+* **Adaptive pacing.** Sweeps ran 3.0s/call against a 0.6s target because two
+  backoff layers compounded. `src/pm_us/throttle.py` is AIMD - success creeps
+  the interval down 3%, a 429 backs it off 80% - and converges to 5.8 req/s
+  against a simulated 8 req/s ceiling, 3.5x the fixed pause.
+
 ## 6. Rules
 
 * Anything new goes through the sealed holdout in `research/holdout.yaml`
