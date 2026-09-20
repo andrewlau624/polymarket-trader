@@ -54,6 +54,7 @@ TRIAL_CAP ?= 2     # $ for the first live trial
 # A trial needs ONE violation, not a full sweep. 3 games x 8 strikes is
 # ~30s instead of ~15min, which shrinks the window where a dropped session
 # could kill the process between the two legs of a pair.
+VDATE     ?= 2026-09-19   # a past game date for `make verify`
 TRIAL_GAMES ?= 3
 TRIAL_NEAR ?= 8
 TRIAL_DAYS ?= 7    # window for the trial. CFB plays Thu-Sat, so 1 finds
@@ -69,7 +70,7 @@ LOAD = set -a; . $(ENVFILE) 2>/dev/null || true; set +a;
 
 man:
 	@cat PLAYBOOK.md
-.PHONY: man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families keyvertical paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families keyvertical paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -108,6 +109,7 @@ help:
 	@echo "  make keynumbers      how lumpy football margins really are"
 	@echo "  make ladder          spread-ladder shape on the live venue (GAME=<base>)"
 	@echo "  make ladder-scan     sweep every ladder, total the lockable dollars"
+	@echo "  make verify          confirm settlement semantics from SETTLED games"
 	@echo "  make ladder-probe    can we short at all? (one 1-share test order)"
 	@echo "  make ladder-dry      scan the slate on a cycle, place nothing"
 	@echo "  make ladder-bg       same but detached - survives ^C and logout"
@@ -202,6 +204,10 @@ ladder:
 
 ladder-test:
 	$(PY) run_ladder.py --self-test
+
+# confirm what a strike settles on, using games that ALREADY resolved
+verify:
+	$(LOAD) $(PY) verify_semantics.py --date $(VDATE) --dump
 
 # sweep every game's ladder and total the lockable dollars
 ladder-scan:
