@@ -17,6 +17,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import time
 from datetime import datetime, timezone
 
@@ -93,6 +94,19 @@ def _hours_left(iso):
         return (dt - datetime.now(timezone.utc)).total_seconds() / 3600.0
     except ValueError:
         return None
+
+
+# The MM bot farms rewards on OUTRIGHT markets. Spread-ladder strikes (asc-*,
+# `...-neg-7pt5`) belong to ladder_bot, and they carry reward pools too, so
+# all_programs() offers them here. That is dangerous: --buy-only now quotes an
+# ask whenever inventory is held, so this bot would happily SELL the long leg
+# of a ladder pair and leave the short leg naked - a directional bet, which is
+# the precise opposite of what the pair exists to avoid.
+_LADDER_SUFFIX = re.compile(r"-(?:pos|neg)-\d+(?:pt\d*)?$")
+
+
+def is_ladder(slug):
+    return bool(_LADDER_SUFFIX.search(slug or ""))
 
 
 def cat_of(p):
@@ -262,9 +276,12 @@ class UsMarketMaker:
 
     # ---- selection ------------------------------------------------------
     def programs(self):
+        # see is_ladder(): never quote a ladder strike from this bot
         resp = self.client.incentives(statuses=["active"], program_type="liquidityProgram")
         rows = []
         for m in (resp.get("programs", []) if isinstance(resp, dict) else []):
+            if is_ladder(m.get("marketSlug")):
+                continue          # ladder_bot's markets; see is_ladder()
             for t in (m.get("timePeriods") or []):
                 if t.get("status") != "active":
                     continue
@@ -669,7 +686,11 @@ class UsMarketMaker:
         except Exception as e:
             print(f"  (program field dump failed: {type(e).__name__} {e})")
 
-        cand = list(allp)
+        cand = [p for p in allp if not is_ladder(p.get("slug"))]
+        n_lad = len(allp) - len(cand)
+        if n_lad:
+            print(f"excluding {n_lad} spread-ladder strikes (ladder_bot's job; "
+                  f"quoting them could sell a pair's leg)")
         if self.args.period and self.args.period != "any":
             cand = [p for p in cand if (p["period"] or "").lower() == self.args.period]
         if self.args.category and self.args.category != "any":
@@ -788,6 +809,13 @@ class UsMarketMaker:
 
         # join the best price on each side (post-only maker)
         buy_px, sell_px = best_bid, best_ask
+        if is_ladder(slug):
+            # belt and braces: even if selection let one through, do not touch it
+            self._cancel(slug)
+            return {"ts": datetime.now(timezone.utc).isoformat(), "mode": self.mode,
+                    "slug": slug, "pool": prog["pool"], "share": 0.0,
+                    "est_daily": 0.0, "note": "ladder strike - not this bot's market",
+                    "repriced": False}
         held, held_cost = self._inventory(slug)
         # --buy-only means "no shorting", not "never exit". When we are long we
         # can quote the ask up to the size we actually own: that scores the ask
