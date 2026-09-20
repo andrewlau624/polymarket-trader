@@ -322,6 +322,19 @@ def reconcile(c, state, args):
             pass
 
         if not sell_open and not buy_open:
+            # Both orders gone. Usually both filled - but cancel_all() from
+            # another process also makes them vanish, and booking that as a
+            # completed pair would credit profit that never happened. Verify
+            # against positions before claiming it.
+            net_s = _position_net(pos, p["sell"])
+            net_b = _position_net(pos, p["buy"])
+            if pos and (net_s >= 0 or net_b <= 0):
+                print(f"  orders gone but positions do not confirm a fill "
+                      f"({p['sell'][:26]}) - treating as CANCELLED, not filled")
+                log({"kind": "vanished", "sell": p["sell"], "buy": p["buy"],
+                     "net_sell": net_s, "net_buy": net_b})
+                state["deployed"] = max(state["deployed"] - p["size"], 0.0)
+                continue
             locked = p["credit"] * p["size"]
             state["realized"] += locked
             state.setdefault("pairs", []).append({**p, "closed": now()})

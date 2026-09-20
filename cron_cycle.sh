@@ -32,6 +32,17 @@ if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 8000000 ]; then
   say "rotated cron.log"
 fi
 
+# The old MM service calls cancel_all() on startup. With maker-first execution
+# the resting orders ARE the position, so letting that service exist is a
+# standing threat to every pending pair - and a reboot is enough to trigger it.
+for svc in pm-us-live pm-us-paper; do
+  if systemctl is-enabled "$svc" >/dev/null 2>&1; then
+    say "!! $svc is ENABLED - it cancels all orders on boot. Disabling."
+    sudo systemctl disable "$svc" >/dev/null 2>&1 \
+      || say "   could not disable $svc; run 'make quiet'"
+  fi
+done
+
 say "cycle start (mem cap ${MEM_MB}MB)"
 
 # a stale lock from a killed run must not block every future cycle
