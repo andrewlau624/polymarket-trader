@@ -883,6 +883,65 @@ look inverted - the opposite of what happened. Shorts now print the implied
 sale price and the collateral separately, and `marginRequirement` is surfaced
 on the balance line since it is the field that answers the netting question.
 
+## 20. Esports: no ladders anywhere, but the best directional edge lives there
+
+"Why not esports, it runs 24/7" deserved a real answer rather than "not listed
+here". Classifying all 1,922 esports markets in the cached tape:
+
+```
+match winner   1140     "LoL: Golden Lions vs 9z Globant - Game 2 Winner"
+map winner      506     "Valorant: Sentinels vs 2GAME - Map 1 Winner"
+totals          274
+handicap/spread   0
+```
+
+**Zero handicap or spread markets.** The ladder arb cannot port to esports, and
+not because a venue declined to list it: a best-of-three has no margin of
+victory to lay strikes across. The monotonicity trade needs an ordered set of
+strikes on a continuous quantity, and esports does not produce one.
+
+### But esports is where the only significant directional edge is
+
+`run_calibration.py --category Esports`, n=1032:
+
+```
+   0.15-0.30   147   0.235  0.122   -0.113  [-0.164,-0.059] *
+   0.75-0.90   127   0.819  0.906   +0.086  [+0.030,+0.135] *
+```
+
+Favourites at 0.75-0.90 win ~8.6 points more often than priced, longshots at
+0.15-0.30 eleven points less. That is the **only** statistically significant
+directional finding in this entire project, it is esports rather than football
+(section 3's headline was this result being misread as general), and an 8.6
+point edge clears a 2c spread comfortably - unlike everything in section 8.
+
+### And esports has structure football lacks
+
+Map 1, Map 2, Map 3 and the match winner are all priced separately. If maps
+were independent with per-map probability p, a Bo3 match win is `p^2(3-2p)`:
+
+```
+map 0.55 -> match 0.575      map 0.75 -> match 0.844
+map 0.65 -> match 0.718      map 0.85 -> match 0.939
+```
+
+That is a model, not a logical identity, so it is a statistical edge rather
+than arbitrage - map independence is roughly true but side selection and
+momentum violate it. With 506 map markets priced alongside their match
+markets, there is real surface area to test it on.
+
+### The blocker is access, and it is not technical
+
+That tape is Polymarket **global**. `requirements.txt` carries
+`py-clob-client` with the comment "Not for US persons", and polymarket.us
+exists precisely because of that restriction. Nothing here should be built to
+work around it.
+
+The legitimate question is whether a venue a US person can use lists esports.
+Kalshi is CFTC-regulated and worth checking - if it lists esports match
+markets, the calibration edge above is the thing to point at it, and it is
+already measured rather than hypothetical.
+
 ## 6. Rules
 
 * Anything new goes through the sealed holdout in `research/holdout.yaml`
