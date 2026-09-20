@@ -209,8 +209,11 @@ ladder-report:
 # First LIVE run: tiny cap, one sweep, games settling within a day so the
 # settlement semantics get confirmed tonight instead of next weekend.
 ladder-trial:
+	@echo "stopping any dry scanner first (it holds the rate-limit lock)…"
+	-@pkill -f "ladder_bot.py" 2>/dev/null; sleep 1; rm -f research/ladder_bot.lock
 	@echo "LIVE. cap \$$$(TRIAL_CAP), one sweep, games settling within $(TRIAL_DAYS) day(s)."
 	@echo "Watch for [PAIRED] vs [failed]. Then: make account"
+	@echo "Afterwards, restart the scanner with: make ladder-bg"
 	$(LOAD) $(PY) ladder_bot.py --live --once --max-capital $(TRIAL_CAP) \
 	  --max-days $(TRIAL_DAYS) --near $(NEAR) --max-games $(GAMES) --min-credit $(MIN_CREDIT)
 

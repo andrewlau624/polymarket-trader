@@ -328,18 +328,26 @@ def main():
     lock = os.path.join("research", "ladder_bot.lock")
     os.makedirs(os.path.dirname(lock) or ".", exist_ok=True)
     if os.path.exists(lock):
+        old_pid, old_mode = None, "?"
         try:
-            old_pid = int(open(lock).read().strip())
+            parts = open(lock).read().strip().split()
+            old_pid = int(parts[0])
+            old_mode = parts[1] if len(parts) > 1 else "?"
             os.kill(old_pid, 0)
-        except (ValueError, ProcessLookupError, PermissionError):
+        except (ValueError, IndexError, ProcessLookupError, PermissionError):
             old_pid = None
         if old_pid:
             raise SystemExit(
-                f"another ladder_bot is already running (pid {old_pid}).\n"
+                f"a {old_mode} ladder_bot already holds the lock (pid {old_pid}).\n"
                 f"Two instances share one rate limit and halve each other's "
-                f"coverage.\nStop it with `make ladder-kill`, or remove {lock} "
-                f"if that pid is stale.")
-    open(lock, "w").write(str(os.getpid()))
+                f"coverage.\n"
+                + (f"That one places no orders, so stopping it costs nothing:\n"
+                   f"  make ladder-kill && make ladder-trial\n"
+                   f"and restart it afterwards with `make ladder-bg`.\n"
+                   if old_mode == "dry" else
+                   f"Stop it with `make ladder-kill`.\n")
+                + f"If pid {old_pid} is stale, remove {lock}.")
+    open(lock, "w").write(f"{os.getpid()} {'live' if args.live else 'dry'}")
 
     mode = "LIVE" if args.live else "dry run"
     state = load_state()
