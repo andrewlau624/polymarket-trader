@@ -106,6 +106,10 @@ bo3:
 exhaustive:
 	$(LOAD) $(PY) run_exhaustive.py
 
+# price a ladder off a BOOKMAKER line and trade the shape, market-neutral
+bookline:
+	$(LOAD) $(PY) run_bookline.py $(if $(GAME),--game $(GAME),--list)
+
 # daily price snapshot -> calibration curve for THIS venue (cron it)
 snapshot:
 	$(LOAD) $(PY) snapshot_prices.py
@@ -190,7 +194,7 @@ quiet:
 	@echo "stopped and disabled. `make run` re-enables the old MM bot."
 
 
-.PHONY: es es-discover es-dry es-live es-report es-feed bo3 exhaustive snapshot snapshot-settle snapshot-calibrate esports-calib money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history allmarkets keyvertical paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: es es-discover es-dry es-live es-report es-feed bo3 exhaustive bookline snapshot snapshot-settle snapshot-calibrate esports-calib money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history allmarkets keyvertical paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
