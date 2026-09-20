@@ -110,7 +110,24 @@ CS2 3-9 down priced at 0.10  ->  implies 55%
 63% for a team that is visibly losing is not credible. That is the
 favourite-longshot bias of layer 2, with a mechanism attached.
 
-Needs live game state; disabled until a feed is wired in.
+### Live data — tested, not assumed
+
+```
+LoL   WORKS.  esports-api lists live matches + gameIds; feed.lolesports.com
+              serves totalGold / towers / barons / dragons / inhibitors per
+              side, updating in game. The whole state vector, free, no account.
+Dota  WORKS.  api.opendota.com/api/live, unauthenticated.
+CS2   NONE.   HLTV blocks scrapers, official endpoints are partner-gated.
+Val   NONE.   Riot publishes no live esports feed.
+```
+
+So layer 3 runs on LoL today. CS2 and Valorant have an exact race model ready
+and no score source — that is a data problem, not a modelling one, and it is
+worth saying plainly rather than shipping a model with nothing to feed it.
+
+Verified against a live match (`FUE vs EDGY`, WSCI) while writing this: the
+feed returned `in_game` with a live frame, and the state fed straight into
+`lol_win_prob`.
 
 ---
 

@@ -102,6 +102,17 @@ print(f'{len(rows)} records:',dict(c));\
 bo3:
 	$(PY) run_bo3.py
 
+# live LoL state -> model win probability, no venue needed
+es-feed:
+	@$(PY) -c "import sys;sys.path.insert(0,'.');\
+from src.esports.feeds import lol_live,lol_window,lol_effective_gold;\
+from src.esports.winprob import lol_win_prob;\
+ms=lol_live();print(f'{len(ms)} LoL matches live');\
+[print(' ',m['league'],m['teams'],'game',m['game_id']) for m in ms];\
+g=[m for m in ms if m['game_id']];\
+w=lol_window(g[0]['game_id']) if g else None;\
+print('  state',w['state'],'goldDiff',w['gold_diff'],'-> adj',round(lol_effective_gold(w)),'-> P(blue)@25min',round(lol_win_prob(lol_effective_gold(w),25),3)) if w else print('  no live frame')"
+
 esports-calib:
 	$(PY) run_calibration.py --category Esports
 
@@ -165,7 +176,7 @@ quiet:
 	@echo "stopped and disabled. `make run` re-enables the old MM bot."
 
 
-.PHONY: es es-discover es-dry es-live es-report bo3 esports-calib money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history allmarkets keyvertical paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: es es-discover es-dry es-live es-report es-feed bo3 esports-calib money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history allmarkets keyvertical paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
