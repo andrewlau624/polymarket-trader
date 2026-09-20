@@ -60,6 +60,7 @@ TRIAL_CAP ?= 2
 # could kill the process between the two legs of a pair.
 VSLUG     ?=              # a specific market slug for `make verify`
 BANKROLL  ?= 20
+HOSTING   ?= 18
 ES_CYCLE  ?= 3
 TRIAL_GAMES ?= 3
 TRIAL_NEAR ?= 8
@@ -109,6 +110,21 @@ exhaustive:
 # price a ladder off a BOOKMAKER line and trade the shape, market-neutral
 bookline:
 	$(LOAD) $(PY) run_bookline.py $(if $(GAME),--game $(GAME),--list)
+
+# multi-outcome / negative-risk bundles: do all legs sum to 1?
+multi:
+	$(LOAD) $(PY) run_multi.py
+
+# is this worth running at all?
+economics:
+	@$(PY) run_economics.py --hosting $(HOSTING) --capital $(BANKROLL)
+
+deploy:
+	@cat DEPLOY.md
+
+# one full cycle, exactly as cron would run it
+cycle:
+	@./cron_cycle.sh && tail -12 cron.log
 
 # daily price snapshot -> calibration curve for THIS venue (cron it)
 snapshot:
@@ -194,7 +210,7 @@ quiet:
 	@echo "stopped and disabled. `make run` re-enables the old MM bot."
 
 
-.PHONY: es es-discover es-dry es-live es-report es-feed bo3 exhaustive bookline snapshot snapshot-settle snapshot-calibrate esports-calib money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history allmarkets keyvertical paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: es es-discover es-dry es-live es-report es-feed bo3 exhaustive bookline multi economics deploy cycle snapshot snapshot-settle snapshot-calibrate esports-calib money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history allmarkets keyvertical paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
