@@ -45,13 +45,15 @@ SCAN      ?= 200   # candidates to book-scan in `make hunt`
 WATCH_MIN ?= 120   # minutes for `make watch` to record book + event feed
 TAPE_CAT  ?= Sports  # category for `make tape` (Sports, Crypto, Politics, LoL, …)
 TAPE_EVENTS ?= 300
+LEAGUE    ?= cfb   # cfb | nfl, for `make keynumbers` and `make ladder`
+GAME      ?=       # e.g. asc-cfb-clmsn-cah-2026-09-25 for `make ladder`
 EDGE_LOG  ?= research/us_edge_log.jsonl
 
 # makes API keys from ENVFILE available to any recipe line
 LOAD = set -a; . $(ENVFILE) 2>/dev/null || true; set +a;
 
 .DEFAULT_GOAL := help
-.PHONY: help setup pull check hunt account cancel flatten flatten-live calibrate tape watch lag paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: help setup pull check hunt account cancel flatten flatten-live calibrate tape watch lag scores keynumbers ladder paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -85,6 +87,9 @@ help:
 	@echo "  make tape            cache the tape for TAPE_CAT=$(TAPE_CAT) and label it"
 	@echo "  make watch           log the US book against the live ESPN event feed"
 	@echo "  make lag             analyse that log: latency + win-prob divergence"
+	@echo "  make scores          cache historical NFL/CFB finals from ESPN"
+	@echo "  make keynumbers      how lumpy football margins really are"
+	@echo "  make ladder          spread-ladder shape on the live venue (GAME=<base>)"
 	@echo ""
 	@echo "  knobs: SIZE=$(SIZE) contracts/order  MARKETS=$(MARKETS)  MAX_INV=\$$$(MAX_INV)/market  BUY BAND=$(MIN_PX)-$(MAX_PX)"
 	@echo "         MIN_POOL=$(MIN_POOL)  MAX_TARGET=$(MAX_TARGET)  PERIOD=$(PERIOD)  ENDING_WITHIN=$(ENDING_WITHIN)"
@@ -146,6 +151,17 @@ watch:
 
 lag:
 	$(PY) analyze_lag.py $(EDGE_LOG)
+
+# spread-ladder shape: key numbers + monotonicity (direction-neutral)
+scores:
+	$(PY) fetch_scores.py --league nfl --from 2012 --to 2025
+	$(PY) fetch_scores.py --league cfb --from 2016 --to 2025
+
+keynumbers:
+	$(PY) run_keynumbers.py --league $(LEAGUE)
+
+ladder:
+	$(LOAD) $(PY) run_ladder.py --league $(LEAGUE) $(if $(GAME),--slug-prefix $(GAME),--list)
 
 # ---------- live ---------------------------------------------------------
 

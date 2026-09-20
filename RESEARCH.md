@@ -260,6 +260,64 @@ these books, a signal needs to move ~2.5c reliably. Nothing measured here does
 that once the bias is removed, and the cost is the binding constraint, not the
 signal.
 
+## 9. The best idea found so far: spread-ladder shape
+
+    python fetch_scores.py --league nfl --from 2012 --to 2025
+    python run_keynumbers.py --league nfl
+    python run_ladder.py --list
+
+**Section 2 was too broad and this corrects it.** "Two opposing positions" is
+dead on YES/NO of one market, because those are pinned to $1 and have no
+convexity. It is *not* dead across two strikes of a spread ladder, which are
+pinned to nothing. The venue lists ladders: `asc-cfb-clmsn-cah-2026-09-25` has
+`pos-5pt`, `neg-5pt`, `pos-6pt`, `neg-4pt`, `pos-7pt`, `neg-7pt`.
+
+A ladder is a discretised CDF of the margin of victory, and two adjacent
+strikes isolate an exact margin:
+
+    P(margin > k-0.5) - P(margin > k+0.5) = P(margin == k)
+
+Football margins are built out of 3s and 7s, so that distribution is spiky.
+From 3,825 NFL finals (2012-2025) against a normal(11.3, 9.1):
+
+```
+ margin   games   actual   smooth   ratio
+      3     553   0.1446   0.0288    5.02x
+      7     328   0.0858   0.0392    2.19x
+      6     257   0.0672   0.0369    1.82x
+      9      60   0.0157   0.0424    0.37x
+     12      68   0.0178   0.0438    0.41x
+```
+
+A ladder priced off a smooth curve misplaces **0.276** of probability mass
+(CFB: 0.241, with extra spikes at 10 and 14). Buying the 2.5/3.5 vertical from
+a smooth-pricing counterparty is worth +0.116 per $1 before cost.
+
+Why this is the most promising thing in this file:
+
+* **It does not require predicting the winner.** It is relative value between
+  two strikes on the same game - direction-neutral.
+* **Bounded, known risk.** The vertical costs what it costs and pays $1 or 0.
+* **The edge (+0.116 on margin 3) is far larger than the ~0.02 spread**, which
+  is the constraint that killed section 8.
+* **It uses the maker infrastructure that already exists.**
+
+Reasons it may still be nothing, in order of how likely they are to kill it:
+
+1. **Key numbers are the most basic concept in football handicapping.** Any
+   competent counterparty prices them correctly, and the 5x figure only
+   applies against someone pricing smoothly. Nobody serious does.
+2. **Contract semantics are unconfirmed.** "5pt" may mean "> 5" or ">= 5",
+   which differ by exactly the point mass at 5 - the thing being traded. Get
+   this wrong and the sign of the trade flips. **Confirm before sizing.**
+3. The ladder books were empty near the touch in `make hunt`, so the mids may
+   not be real prices.
+4. Both legs must fill. One-legged, it is a naked directional bet.
+
+`run_ladder.py` checks the live ladder for both monotonicity violations (which
+would be risk-free, and which the graveyard only ever tested on the GLOBAL
+venue, never this one) and key-number mispricing.
+
 ## 6. Rules
 
 * Anything new goes through the sealed holdout in `research/holdout.yaml`
