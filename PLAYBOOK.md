@@ -17,9 +17,14 @@ sequence. RESEARCH.md holds the evidence behind each claim.
 | Cross-market | built, 24/25 games efficient; the 1 gap is the same broken ladder. |
 | Sub-period ladders | **untested.** 100 strikes, settle intra-game. |
 
-One assumption still unverified: that `pos-5pt` means the team **receives** 5
-points. Derived from price shape, not documentation. Everything above rests on
-it. `make ladder-trial` plus Thursday's settlement is what confirms it.
+The settlement convention is **CONFIRMED** from the venue's own rules text
+(RESEARCH.md S18): a strike at line L pays iff `margin > -L`. Read a market's
+`description` field before modelling anything — it states the rule in plain
+English, and inferring it instead cost this project six semantic errors.
+
+Still unknown: whether the venue **nets** the two legs of a pair. That decides
+whether key-number verticals return ~5% or ~470%, and `make ladder-trial`
+answers it by how much buying power a pair consumes.
 
 ## Phase 1 — check state (any time, no risk)
 

@@ -162,9 +162,13 @@ def report(quotes, league, cost):
                 sz = min(quotes[l1]["bid_sz"], quotes[l2]["ask_sz"])
                 found.append((credit, l1, l2, sz))
     for credit, l1, l2, sz in sorted(found, reverse=True):
+        same = " [SAME CONTRACT]" if identical_pair(l1, l2) else ""
         print(f"  sell {l1:+.1f} @ {quotes[l1]['bid']:.3f}  buy {l2:+.1f} @ "
               f"{quotes[l2]['ask']:.3f}  credit {credit:+.3f} x {sz:.0f} shares "
-              f"= ${credit * sz:.2f} locked")
+              f"= ${credit * sz:.2f} locked{same}")
+    if any(identical_pair(l1, l2) for _c, l1, l2, _s in found):
+        print("  [SAME CONTRACT] pairs straddle only a 0 margin, which football")
+        print("  cannot produce, so both legs settle on the identical event.")
     if not found:
         print("  none - the ladder is internally consistent on executable prices.")
     else:
@@ -213,7 +217,27 @@ def report(quotes, league, cost):
     print("  a heavy favourite; fine near a pick'em.")
 
 
-def violations(quotes):
+def identical_pair(l1, l2, ties_possible=False):
+    """Do two strikes settle on the SAME event?
+
+    A strike at line L pays iff margin > -L, so strikes l1 < l2 differ only
+    when an achievable margin lies in (-l2, -l1]. In football a margin of 0 is
+    impossible (overtime), so neg-0.5 and pos-0.5 - which straddle only 0 -
+    are the identical contract. The venue confirms it in its own rules text:
+    both settle to Yes iff Clemson wins.
+
+    These are the highest-confidence violations available: not "the higher line
+    is easier so the price must be ordered", but "this is the same contract at
+    two prices".
+    """
+    lo, hi = -l2, -l1
+    span = [m for m in range(int(lo) - 1, int(hi) + 2) if lo < m <= hi]
+    if ties_possible:
+        return not span
+    return not [m for m in span if m != 0]
+
+
+def violations(quotes, ties_possible=False):
     """(credit, low line, high line, shares) for every executable violation."""
     out, ks = [], sorted(quotes)
     for i, l1 in enumerate(ks):

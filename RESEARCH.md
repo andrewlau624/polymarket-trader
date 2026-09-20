@@ -786,6 +786,62 @@ objective that this venue supports. `parse_strike` already handles them
 so the bot covers them already. They have never been scanned during a live game
 because every session so far has been on a non-game day.
 
+## 18. CONFIRMED from the venue's own rules text
+
+`make verify VSLUG=asc-cfb-clmsn-cah-2026-09-25-neg-0pt5` returns what should
+have been read on day one:
+
+```
+question    Will the Clemson cover -0.5 vs the California...?
+line        -0.5
+marketType  spreads / football_team_full_game_spread
+description "This market will settle to Yes if Clemson wins by more than 0.5 ...
+             Overtime is included if played. If the game is delayed, postponed
+             or suspended and not rescheduled within two weeks, the market will
+             settle to the last fair market price."
+marketSides price 0.5850  long=True   -0.50  team=Clemson
+            price 0.4200  long=False  +0.50  team=California
+```
+
+**The sign convention is correct.** `neg-0pt5` pays iff `margin > 0.5`, which
+is exactly "pays iff `margin > -L`". The ladder is written from one team
+throughout. Sections 9, 15 and 16 stand as written.
+
+`markets.list()` carries a plain-English `description` on every market. This
+project inferred the convention from the shape of a price curve, published nine
+fake arbitrages off an inverted sign, and only found the documentation after
+six separate semantic errors. **Read `description` before modelling anything.**
+
+### Two structural discoveries in the same payload
+
+**1. Every market has two sides and the venue prints both.** `marketSides`
+gives Clemson -0.5 at 0.5850 (long) and California +0.5 at 0.4200 (short),
+summing to 1.0050. `book_levels()` reads one book, so half the liquidity on
+every strike has been invisible - and a pair of sides quoted above 1.00 is the
+YES+NO structure the graveyard buried on the GLOBAL venue and never tested
+here.
+
+**2. `neg-0pt5` and `pos-0pt5` are the identical contract.**
+
+```
+neg-0.5 pays iff margin >  0.5
+pos-0.5 pays iff margin > -0.5
+```
+
+The only margin between them is 0, which football cannot produce because
+overtime is played. Both settle on "Clemson wins". They were quoted 0.583 and
+0.552, and the live ladder offered `sell -0.5 @ 0.580, buy +0.5 @ 0.555` for
+**+0.025**. That is not "the higher line is easier so the ordering must hold" -
+it is the same contract at two prices, confirmed from the rules text.
+
+`identical_pair()` generalises it: strikes k1 < k2 settle identically whenever
+no achievable margin lies in `(-k2, -k1]`. Those violations now print
+`[SAME CONTRACT]` and are the highest-confidence trades on the board.
+
+**Postponement clause:** settles to "the last fair market price", not 50-50 as
+the moneylines do. For a monotonicity pair both legs mark at their last prices,
+preserving the gap, so the credit survives. Worth knowing rather than assuming.
+
 ## 6. Rules
 
 * Anything new goes through the sealed holdout in `research/holdout.yaml`
