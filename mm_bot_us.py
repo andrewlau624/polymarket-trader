@@ -66,7 +66,7 @@ def _position_row(v):
 # the real schema is discoverable instead of guessed at
 _KNOWN_BALANCE_KEYS = {"currentBalance", "buyingPower", "balanceReservation",
                        "assetNotional", "currency", "bonusReservation",
-                       "availableToWithdraw"}
+                       "availableToWithdraw", "marginRequirement", "openOrders"}
 # statuses that mean the reward actually landed. Anything else (SKIPPED,
 # PENDING, ...) has not paid, so it is reported separately.
 _PAID_STATUSES = {"PAID", "CREDITED", "COMPLETED", "SETTLED", "SUCCESS"}
@@ -397,6 +397,10 @@ class UsMarketMaker:
                 print(f"  TRADEABLE (buying power) {_money(bp)}")
                 print(f"  cash {_money(cash)}   of which bonus credit "
                       f"{_money(bonus)}   withdrawable {_money(withdrawable)}")
+                marg = _amt(b.get("marginRequirement"))
+                if marg:
+                    print(f"  margin held against short legs {_money(marg)}  "
+                          f"(the venue does NOT net a pair: ~$1/share)")
                 if withdrawable is not None and withdrawable <= 0.0049:
                     print(f"  (nothing is withdrawable yet: this is promotional "
                           f"credit, see RESEARCH.md S5a)")
@@ -449,9 +453,19 @@ class UsMarketMaker:
             print(f"  {'market':<38} {'net':>6} {'cost':>9} {'avg':>7} {'realized':>9}")
             for k, v in sorted(positions.items()):
                 net, cost, realized = _position_row(v)
-                avg = cost / net if net else 0.0
-                print(f"  {k[:38]:<38} {net:>6.0f} {'$%.2f' % cost:>9} "
-                      f"{avg:>7.3f} {'$%.2f' % realized:>9}")
+                # On a SHORT, `cost` is the COLLATERAL posted, not the sale
+                # price: 2 shares sold at 0.58 shows cost 0.84 = (1-0.58)*2.
+                # Dividing by a negative net printed avg -0.420, which reads
+                # like it sold at 0.42 and inverted the apparent trade.
+                if net < 0:
+                    coll = cost / abs(net)
+                    print(f"  {k[:38]:<38} {net:>6.0f} {'$%.2f' % cost:>9} "
+                          f"{1.0 - coll:>7.3f} {'$%.2f' % realized:>9}  "
+                          f"SHORT: sold ~{1.0 - coll:.3f}, ${coll:.3f}/sh collateral")
+                else:
+                    avg = cost / net if net else 0.0
+                    print(f"  {k[:38]:<38} {net:>6.0f} {'$%.2f' % cost:>9} "
+                          f"{avg:>7.3f} {'$%.2f' % realized:>9}")
             print(f"  {'TOTAL':<38} {'':>6} {'$%.2f' % cost_basis:>9}")
 
         print("\n== REWARDS EARNED (real) ==")

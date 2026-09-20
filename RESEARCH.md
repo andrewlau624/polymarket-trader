@@ -842,6 +842,47 @@ no achievable margin lies in `(-k2, -k1]`. Those violations now print
 the moneylines do. For a monotonicity pair both legs mark at their last prices,
 preserving the gap, so the credit survives. Worth knowing rather than assuming.
 
+## 19. First live pair: it works, and the venue does not net
+
+```
+asc-cfb-clmsn-cah-2026-09-25-neg-0pt5   -2   $0.84
+asc-cfb-clmsn-cah-2026-09-25-pos-0pt5    2   $1.11
+marginRequirement 2
+```
+
+Both legs filled. It is the `[SAME CONTRACT]` pair from section 18 - the two
+strikes that settle on the identical event - which is the highest-confidence
+trade available.
+
+The 0.42 on the short is **collateral, not the sale price**: `1 - 0.58 = 0.42`.
+So the pair is sold at 0.580 and bought at 0.555:
+
+```
+credit   +0.025/share x 2 = +$0.05
+capital   0.975/share x 2 =  $1.95
+```
+
+`capital_per_share()` predicted $1.95 and the venue's own `marginRequirement`
+came back **$2**. The model is right, and:
+
+**THE VENUE DOES NOT NET THE TWO LEGS.** ~$1 of margin per share-pair. This
+was the last open question from section 15, and it settles it:
+
+* The monotonicity arb returns **~2.5% per settlement** on locked capital -
+  unchanged, since that was always costed at ~$1/share.
+* **Key-number verticals are a ~5% trade, not a 470% one.** The premium is
+  tiny but the short leg still ties up (1 - price), so the payoff shape is
+  attractive while the return on capital is barely better than the risk-free
+  version. Not worth the added risk at this size. Deprioritised.
+
+### A display bug this exposed
+
+The positions table divided `cost` by a negative `net` and printed
+`avg -0.420` for the short, which reads as "sold at 0.42" and makes the trade
+look inverted - the opposite of what happened. Shorts now print the implied
+sale price and the collateral separately, and `marginRequirement` is surfaced
+on the balance line since it is the field that answers the netting question.
+
 ## 6. Rules
 
 * Anything new goes through the sealed holdout in `research/holdout.yaml`
