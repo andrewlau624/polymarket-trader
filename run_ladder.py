@@ -40,8 +40,6 @@ import re
 import time
 from collections import defaultdict
 
-import pandas as pd
-
 STRIKE = re.compile(r"^(?P<base>.+?)-(?P<sign>pos|neg)-(?P<num>\d+)(?:pt(?P<frac>\d+)?)?$")
 SCORES = os.path.join("data", "scores_{league}.csv")
 
@@ -59,9 +57,13 @@ def parse_strike(slug):
 
 
 def empirical_pmf(league):
+    """Historical margin distribution. pandas is imported here, not at module
+    scope, so the probe and the arbitrage scan keep working on a bot-only venv
+    - the most safety-critical path should have the fewest dependencies."""
     path = SCORES.format(league=league)
     if not os.path.exists(path):
         return None
+    import pandas as pd
     m = pd.read_csv(path)["margin"].abs()
     m = m[m > 0]
     return (m.value_counts() / len(m)).sort_index(), len(m)

@@ -48,14 +48,15 @@ TAPE_EVENTS ?= 300
 LEAGUE    ?= cfb   # cfb | nfl, for `make keynumbers` and `make ladder`
 GAME      ?=       # e.g. asc-cfb-clmsn-cah-2026-09-25 for `make ladder`
 NEAR      ?= 12    # strikes nearest a pick'em to scan (violations cluster there)
-GAMES     ?= 12    # ladders to sweep in `make ladder-scan`
+GAMES     ?= 25    # ladders to sweep per cycle
+CYCLE     ?= 20    # minutes between full sweeps in `make ladder-dry`
 EDGE_LOG  ?= research/us_edge_log.jsonl
 
 # makes API keys from ENVFILE available to any recipe line
 LOAD = set -a; . $(ENVFILE) 2>/dev/null || true; set +a;
 
 .DEFAULT_GOAL := help
-.PHONY: help setup pull check hunt account cancel flatten flatten-live calibrate tape watch lag scores keynumbers ladder ladder-test ladder-scan paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: help setup pull check hunt account cancel flatten flatten-live calibrate tape watch lag scores keynumbers ladder ladder-test ladder-scan ladder-probe ladder-dry paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -93,6 +94,8 @@ help:
 	@echo "  make keynumbers      how lumpy football margins really are"
 	@echo "  make ladder          spread-ladder shape on the live venue (GAME=<base>)"
 	@echo "  make ladder-scan     sweep every ladder, total the lockable dollars"
+	@echo "  make ladder-probe    can we short at all? (one 1-share test order)"
+	@echo "  make ladder-dry      scan the slate on a cycle, place nothing"
 	@echo ""
 	@echo "  knobs: SIZE=$(SIZE) contracts/order  MARKETS=$(MARKETS)  MAX_INV=\$$$(MAX_INV)/market  BUY BAND=$(MIN_PX)-$(MAX_PX)"
 	@echo "         MIN_POOL=$(MIN_POOL)  MAX_TARGET=$(MAX_TARGET)  PERIOD=$(PERIOD)  ENDING_WITHIN=$(ENDING_WITHIN)"
@@ -172,6 +175,15 @@ ladder-test:
 # sweep every game's ladder and total the lockable dollars
 ladder-scan:
 	$(LOAD) $(PY) run_ladder.py --league $(LEAGUE) --scan-all --near $(NEAR) --max-games $(GAMES)
+
+# Does the venue allow selling a contract we do not hold? The paired trade is
+# impossible if not. Sends ONE 1-share sell and cancels it.
+ladder-probe:
+	$(LOAD) $(PY) ladder_bot.py --probe --yes
+
+# Scans the whole slate on a cycle and places NOTHING.
+ladder-dry:
+	$(LOAD) $(PY) ladder_bot.py --near $(NEAR) --max-games $(GAMES) --cycle-min $(CYCLE)
 
 # ---------- live ---------------------------------------------------------
 
