@@ -140,6 +140,38 @@ gap's persistence, not its arrival time.
 attached (drop `--espn-only`). n=2 at the end of a clock-stopped fourth
 quarter is an anecdote.
 
+## 5a. The account is promotional credit, not cash
+
+`make account` dumped the balance fields the report did not recognise:
+
+```
+bonusHold: 25, bonusReservation: 9.01045, displayedBonus: 9.01045,
+displayedCash: 0, assetAvailable: 0, availableToWithdraw: 0
+```
+
+**`displayedCash: 0` and `availableToWithdraw: 0`.** The $9.01 is bonus
+credit against a $25 promotional hold, not money. Nothing in this account is
+currently withdrawable, so "profit" here is not realisable profit until
+whatever the bonus terms require has been satisfied. Read the promo terms
+(wagering requirement, expiry, whether winnings convert) before sizing
+anything, because they, not the edge, set the objective function.
+
+This is also why `assetNotional` read $0.00: the venue is tracking bonus and
+cash separately and the report was reading the wrong drawer.
+
+## 5b. Every reward was SKIPPED — probably because of --buy-only
+
+Four rewards, $0.08 gross, **$0.0000 credited**, all `SKIPPED`. Liquidity
+programmes generally require a **two-sided** quote to qualify. The bot ran
+`--buy-only`, which posted bids and no asks, so it plausibly never qualified
+for any of them — the $0.08 was never going to land.
+
+If that is the cause, the exit-quoting change (asks whenever inventory is
+held) is also the fix, and the test is cheap: run two-sided for one period
+and see whether status moves off SKIPPED. **Do that before concluding
+anything further about reward economics** — every number in section 5 was
+measured on a bot that may never have been eligible.
+
 ## 5. Settled: the rewards programme is not the business
 
 Two days of live quoting produced **$0.07 gross, $0.04 credited**, while

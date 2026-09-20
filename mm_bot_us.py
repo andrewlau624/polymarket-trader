@@ -94,6 +94,36 @@ def _hours_left(iso):
         return None
 
 
+def cat_of(p):
+    """Category label for a program, falling back to subcategory."""
+    return (p.get("category") or p.get("subcategory") or "").strip()
+
+
+def cat_matches(p, want):
+    """Forgiving category match.
+
+    An exact equality test on this field silently matched 0 of 2418 programs
+    while the whole book was sports, because nobody had checked what the venue
+    actually puts there. Substring, either direction, across category and
+    subcategory.
+    """
+    if not want or want == "any":
+        return True
+    w = want.lower().strip()
+    for v in (p.get("category"), p.get("subcategory")):
+        v = (v or "").lower().strip()
+        if v and (w in v or v in w):
+            return True
+    return False
+
+
+def cat_labels(progs, limit=14):
+    """'sports(1200), mma(80), …' - what the venue really returns."""
+    from collections import Counter
+    c = Counter(cat_of(p) or "(none)" for p in progs)
+    return ", ".join(f"{k}({v})" for k, v in c.most_common(limit))
+
+
 def score_side(levels, best, discount, target, tick, our_price, our_size):
     """Reward score for one side: discount^(ticks from best) * size, capped at target."""
     total = 0.0
@@ -157,8 +187,7 @@ class UsMarketMaker:
             if self.args.period and self.args.period != "any":
                 cand = [p for p in cand if (p["period"] or "").lower() == self.args.period]
             if self.args.category and self.args.category != "any":
-                cand = [p for p in cand
-                        if (p.get("category") or "").lower() == self.args.category.lower()]
+                cand = [p for p in cand if cat_matches(p, self.args.category)]
             cand = [p for p in cand if p["pool"] >= self.args.min_pool]
             if self.args.max_target:
                 cand = [p for p in cand if p["target"] <= self.args.max_target]
@@ -258,7 +287,7 @@ class UsMarketMaker:
             # small-target programs are where a small order is a meaningful share
             rows = [r for r in rows if r["target"] <= self.args.max_target]
         if self.args.category and self.args.category != "any":
-            rows = [r for r in rows if (r.get("category") or "").lower() == self.args.category.lower()]
+            rows = [r for r in rows if cat_matches(r, self.args.category)]
         if self.args.period and self.args.period != "any":
             rows = [r for r in rows if (r["period"] or "").lower() == self.args.period]
         if self.args.ending_within:
@@ -501,14 +530,14 @@ class UsMarketMaker:
         allp = self.client.all_programs()
         cnt = Counter((p["period"] or "?") for p in allp)
         print(f"fetched {len(allp)} active program periods")
-        print("period labels seen: " + ", ".join(f"{k}({v})" for k, v in cnt.most_common()))
+        print("period labels seen:   " + ", ".join(f"{k}({v})" for k, v in cnt.most_common()))
+        print("category labels seen: " + cat_labels(allp))
 
         cand = list(allp)
         if self.args.period and self.args.period != "any":
             cand = [p for p in cand if (p["period"] or "").lower() == self.args.period]
         if self.args.category and self.args.category != "any":
-            cand = [p for p in cand
-                    if (p.get("category") or "").lower() == self.args.category.lower()]
+            cand = [p for p in cand if cat_matches(p, self.args.category)]
         cand = [p for p in cand if p["pool"] >= self.args.min_pool]
         if self.args.max_target:
             cand = [p for p in cand if p["target"] <= self.args.max_target]
@@ -531,7 +560,11 @@ class UsMarketMaker:
             print(f"{r['est_daily']:>10,.2f}{r['pool']:>8,.0f}{r['target']:>9.0f}"
                   f"{r['share']:>8.3f}{ok:>6}  {r['period']:<7} {r['slug'][:36]}")
         print(f"\n  {met}/{len(rows)} meet Target Size (those are the only ones that can pay)")
-        if not rows:
+        if not cand:
+            print(f"  the FILTER matched nothing - no program has category "
+                  f"~'{self.args.category}' / period '{self.args.period}'.")
+            print(f"  categories the venue actually returns: {cat_labels(allp)}")
+        elif not rows:
             print("  none — every matching market has an empty/one-sided book")
         return rows
 
@@ -902,7 +935,8 @@ def main():
                     help="only programs whose time period ends within N hours "
                          "(faster payout signal; 0 = any)")
     ap.add_argument("--category", default="any",
-                    help="only this category (e.g. sports, politics, crypto, economics)")
+                    help="substring match on the venue's category/subcategory "
+                         "(run `make hunt` to see the labels it actually returns)")
     ap.add_argument("--period", default="any",
                     choices=["any", "early", "day_of", "live", "daily_event", "daily"],
                     help="only this reward time period (daily pays every day)")
