@@ -40,25 +40,16 @@ def is_game(slug):
     return bool(GAME_RE.match(slug or "")) and not LADDER_RE.search(slug or "")
 
 
-def load():
-    if not os.path.exists(LOG):
-        return []
-    out = []
-    for line in open(LOG):
-        line = line.strip()
-        if line:
-            try:
-                out.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass
-    return out
+def load(n=20000):
+    """Recent records only. Slurping the whole file grew without bound."""
+    from src.pm_us.jsonlog import tail_records
+    return tail_records(LOG, n=n)
 
 
 def write(recs):
-    os.makedirs(os.path.dirname(LOG) or ".", exist_ok=True)
-    with open(LOG, "a") as fh:
-        for r in recs:
-            fh.write(json.dumps(r) + "\n")
+    from src.pm_us.jsonlog import append
+    for r in recs:
+        append(LOG, r)
 
 
 def snapshot(c, pause=0.35, limit=400):
@@ -173,8 +164,11 @@ def main():
     new = settle(c, recs) if args.settle else snapshot(c, limit=args.limit)
     write(new)
     c.close()
-    n_snap = sum(1 for r in recs + new if r.get("kind") != "settle")
-    n_res = sum(1 for r in recs + new if r.get("kind") == "settle")
+    # `recs + new` copied the entire list just to count it
+    n_snap = sum(1 for r in recs if r.get("kind") != "settle") + \
+        sum(1 for r in new if r.get("kind") != "settle")
+    n_res = sum(1 for r in recs if r.get("kind") == "settle") + \
+        sum(1 for r in new if r.get("kind") == "settle")
     print(f"log now holds {n_snap} snapshots and {n_res} settlements")
 
 

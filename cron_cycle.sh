@@ -20,7 +20,19 @@ set -a; . /etc/pm-us.env 2>/dev/null || true; set +a
 
 say() { echo "[$(date -u +%FT%TZ)] $*" >> "$LOG"; }
 
-say "cycle start"
+# HARD MEMORY CAP. A runaway process must die alone, not take the box with it.
+# Unbounded log reads OOM'd this droplet once; ulimit means the next such bug
+# kills one python and leaves everything else - including ssh - alive.
+MEM_MB="${MEM_MB:-700}"
+ulimit -v $((MEM_MB * 1024)) 2>/dev/null || say "warn: could not set ulimit"
+
+# keep our own log from becoming the next unbounded thing
+if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 8000000 ]; then
+  mv -f "$LOG" "$LOG.1"
+  say "rotated cron.log"
+fi
+
+say "cycle start (mem cap ${MEM_MB}MB)"
 
 # a stale lock from a killed run must not block every future cycle
 if [ -f research/ladder_bot.lock ]; then
@@ -54,3 +66,8 @@ say "snapshot rc=$?"
 timeout 300 "$PY" watch_families.py 2>&1 | grep -E "NEW LADDER|nightly" >> "$LOG"
 
 say "cycle done"
+
+# report anything the memory cap killed, rather than failing silently
+if grep -q "MemoryError\|Cannot allocate" "$LOG" 2>/dev/null; then
+  say "!! a step hit the ${MEM_MB}MB cap - raise MEM_MB or report it"
+fi

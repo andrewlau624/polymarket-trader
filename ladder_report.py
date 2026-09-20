@@ -21,13 +21,8 @@ def main():
         print(f"no log at {path} - run `make ladder-dry` first")
         return
     recs = []
-    for line in open(path):
-        line = line.strip()
-        if line:
-            try:
-                recs.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass
+    from src.pm_us.jsonlog import tail_records
+    recs = tail_records(path, n=6000)
 
     sweeps = [r for r in recs if r.get("kind") == "sweep"]
     opps = [r for r in recs if r.get("kind") == "opportunity"]

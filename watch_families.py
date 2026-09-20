@@ -52,14 +52,8 @@ def history():
     seen = {}
     if not os.path.exists(LOG):
         return seen
-    for line in open(LOG):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            r = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    from src.pm_us.jsonlog import tail_records
+    for r in tail_records(LOG, n=3000):
         for name, n in (r.get("families") or {}).items():
             if name not in seen:
                 seen[name] = (r.get("ts", "?"), n)

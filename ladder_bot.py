@@ -45,10 +45,10 @@ def now():
 
 
 def log(rec):
-    os.makedirs(os.path.dirname(LOG) or ".", exist_ok=True)
+    """Append, rotating past 8MB. Unbounded growth here OOM'd a droplet."""
+    from src.pm_us.jsonlog import append
     rec["ts"] = now()
-    with open(LOG, "a") as fh:
-        fh.write(json.dumps(rec) + "\n")
+    append(LOG, rec)
 
 
 def load_state():
@@ -138,17 +138,12 @@ def past_hits(path=LOG):
     than breadth: a full sweep takes ~15 minutes, and a violation can be taken
     by someone else in that time.
     """
+    # Only recent history matters for ranking, and this is called EVERY sweep.
+    # Reading the whole file each time is what made the log size a memory
+    # problem rather than just a disk one.
+    from src.pm_us.jsonlog import tail_records
     hits = {}
-    if not os.path.exists(path):
-        return hits
-    for line in open(path):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            r = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for r in tail_records(path, n=4000):
         if r.get("kind") == "opportunity" and r.get("game"):
             hits[r["game"]] = hits.get(r["game"], 0) + 1
     return hits
@@ -590,11 +585,8 @@ def main():
     if args.live:
         proven = None
         if os.path.exists(LOG):
-            for line in open(LOG):
-                try:
-                    r = json.loads(line)
-                except Exception:
-                    continue
+            from src.pm_us.jsonlog import iter_records
+            for r in iter_records(LOG):
                 if r.get("kind") == "probe":
                     proven = r.get("result")
         if proven == "accepted":

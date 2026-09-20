@@ -22,13 +22,8 @@ def main():
         print(f"no log at {path} - run `make crossmarket-bg` first")
         return
     recs = []
-    for line in open(path):
-        line = line.strip()
-        if line:
-            try:
-                recs.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass
+    from src.pm_us.jsonlog import tail_records
+    recs = tail_records(path, n=4000)
     kinds = collections.Counter(r.get("kind", "?") for r in recs)
     print(f"{len(recs)} records: " + ", ".join(f"{k}({v})" for k, v in kinds.most_common()))
 
