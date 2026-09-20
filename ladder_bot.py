@@ -242,6 +242,22 @@ def main():
         c.close()
         return
 
+    lock = os.path.join("research", "ladder_bot.lock")
+    os.makedirs(os.path.dirname(lock) or ".", exist_ok=True)
+    if os.path.exists(lock):
+        try:
+            old_pid = int(open(lock).read().strip())
+            os.kill(old_pid, 0)
+        except (ValueError, ProcessLookupError, PermissionError):
+            old_pid = None
+        if old_pid:
+            raise SystemExit(
+                f"another ladder_bot is already running (pid {old_pid}).\n"
+                f"Two instances share one rate limit and halve each other's "
+                f"coverage.\nStop it with `make ladder-kill`, or remove {lock} "
+                f"if that pid is stale.")
+    open(lock, "w").write(str(os.getpid()))
+
     mode = "LIVE" if args.live else "dry run"
     state = load_state()
     print(f"ladder bot | {mode} | cap ${args.max_capital:.2f} | "
@@ -293,6 +309,11 @@ def main():
                     line = (f"  {base[:34]:<34} sell {l1:+.1f} buy {l2:+.1f} "
                             f"credit {credit:+.3f} x{size} = ${credit * size:.2f}")
                     if not args.live:
+                        # spend the budget in simulation too, or every violation
+                        # is sized as if it had the whole cap to itself and the
+                        # sweep total becomes fiction
+                        state["deployed"] += per_share * size
+                        room -= per_share * size
                         print(line + "   [dry run]")
                         log({"kind": "opportunity", "game": base, "sell": l1,
                              "buy": l2, "credit": round(credit, 4), "size": size,
@@ -316,6 +337,8 @@ def main():
                  "games_scanned": len(games), "opportunity": round(found, 4),
                  "locked": round(locked, 4), "minutes": round(mins, 2),
                  "sports": sports, "live": bool(args.live)})
+            if not args.live:
+                state["deployed"] = 0.0      # simulated spend, reset each sweep
             if args.once:
                 break
             time.sleep(max(0.0, args.cycle_min * 60 - (time.time() - t0)))
@@ -323,6 +346,10 @@ def main():
         print("\nstopping")
     finally:
         save_state(state)
+        try:
+            os.remove(lock)
+        except OSError:
+            pass
         c.close()
 
 

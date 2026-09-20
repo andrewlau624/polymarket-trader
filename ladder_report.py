@@ -72,10 +72,32 @@ def main():
     print(f"\n  {once}/{len(seen)} violations appeared in only ONE sweep.")
     print("  Those are stale quotes, not inefficiencies - do not count them.")
     durable = [k for k, v in seen.items() if v >= max(2, n_sweeps // 2)]
-    dv = sum(r["value"] for r in opps if key(r) in durable) / max(n_sweeps, 1)
-    print(f"  {len(durable)} appear in at least half the sweeps, worth ~${dv:.2f} "
-          f"per sweep.")
-    print("  That figure, not the headline opportunity, is what is actually there.")
+    # the same violation recurring is ONE opportunity that keeps standing there,
+    # not a new one each sweep. Value it once, at its latest size and credit.
+    latest = {}
+    for r in opps:
+        if key(r) in durable:
+            latest[key(r)] = r
+    stock = sum(r["credit"] * r["size"] for r in latest.values())
+    print(f"\n  {len(durable)} violations stand in at least half the sweeps.")
+    print(f"  Their combined value is ${stock:.2f} - and that is a STOCK, not a")
+    print(f"  per-sweep flow. The same violations recur because nobody has taken")
+    print(f"  them; you capture each one ONCE, then hold until the game settles.")
+
+    # what the capital cap actually allows, best credits first
+    print(f"\n  what a given capital cap can actually take (~$0.96 a share):")
+    ranked = sorted(latest.values(), key=lambda r: -r["credit"])
+    for cap in (5, 9, 20, 50, 100):
+        shares, got = int(cap / 0.96), 0.0
+        for r in ranked:
+            take = min(r["size"], shares)
+            if take <= 0:
+                break
+            got += r["credit"] * take
+            shares -= take
+        print(f"    ${cap:>3} -> ${got:.2f}")
+    print("  Sizes above are themselves capped by --max-capital, so raising the")
+    print("  cap may reveal more depth than these rows show.")
 
 
 if __name__ == "__main__":
