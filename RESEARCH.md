@@ -410,6 +410,54 @@ Open before any of this trades:
 `run_ladder.py` checks both, `--self-test` pins the sign convention, and
 `--scan-all` answers the capacity question.
 
+## 10. The blocker: there is no short intent
+
+`src/pm_us/client.py` exposes exactly two intents:
+
+```
+INTENT_BUY  = "ORDER_INTENT_BUY_LONG"
+INTENT_SELL = "ORDER_INTENT_SELL_LONG"
+```
+
+`SELL_LONG` sells shares you already hold. **There is no short intent.** Every
+structure in section 9 - the monotonicity pair, the key-number vertical -
+needs to sell a leg we do not own. If the venue rejects that, the mispricing
+is real and completely unreachable.
+
+This is not a detail to discover in production. `ladder_bot.py --probe` sends
+one 1-share sell on a market we do not hold, reports accepted or rejected, and
+cancels. One share of risk to answer the question the entire strategy rests
+on.
+
+**Nothing should trade until the probe answers.** If it is rejected, section 9
+is dead on this venue and the remaining option is a venue that supports
+shorting, or buying the cheap leg outright, which is a directional bet and not
+the trade.
+
+## 11. Can it run on esports, and 24/7?
+
+**Esports: not on this venue.** Every ladder listed is `asc-cfb-*`, and the
+outright markets are `aec-cfb`, `aec-nfl`, `aec-ufc`. The venue is US sports.
+`ladder_bot.py` prints the sport breakdown each sweep, so this is checkable
+rather than assumed.
+
+Even if it listed esports, the structure is weak there: a Bo3 map handicap has
+two or three rungs, and both the monotonicity check and the key-number test
+need a dense ladder. Football is unusually good for this precisely because
+scores are built from 3s and 7s across a wide range of margins. Esports is
+where the *global* tape's liquidity is (1,922 of 2,484 cached markets), but
+that is a different venue.
+
+**24/7: yes, and for a better reason than expected.** Every violation found so
+far was on a game *days* away, not a live one. Pre-game ladders are thin and
+stale, which is exactly where inconsistency lives, so the forward slate is the
+hunting ground and it is always populated. The bot sweeps every ladder on a
+cycle rather than watching one game.
+
+What 24/7 does NOT buy: depth. At 1-2 shares per violation the constraint is
+capacity, not opportunities per hour. Running continuously across 43 ladders
+is how a few dollars of edge gets collected; it is not how it gets bigger.
+
 ## 6. Rules
 
 * Anything new goes through the sealed holdout in `research/holdout.yaml`
