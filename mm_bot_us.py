@@ -516,6 +516,34 @@ class UsMarketMaker:
         if not longs and not shorts:
             print("no positions to flatten")
             return
+        # Flatten must be IDEMPOTENT. It places resting sells, so re-running it
+        # without clearing its own prior orders double-posts: two 6-share sells
+        # against a 6-share position can fill twice and open a short, which is
+        # precisely what this command exists to prevent. Told the operator to
+        # re-run it, and that is exactly what happened.
+        existing = {}
+        try:
+            for o in (self.client.open_orders() or []):
+                sl = o.get("marketSlug") or o.get("slug")
+                oid = o.get("orderId") or o.get("id")
+                if sl and oid:
+                    existing.setdefault(sl, []).append(oid)
+        except Exception as e:
+            print(f"! could not list open orders ({type(e).__name__}); a re-run "
+                  f"may double-post. Run `make cancel` first to be safe.")
+        if existing:
+            n = sum(len(v) for v in existing.values())
+            print(f"clearing {n} existing order(s) on {len(existing)} market(s) "
+                  f"so this does not double-post…")
+            if self.mode == "live":
+                for sl, oids in existing.items():
+                    for oid in oids:
+                        try:
+                            self.client.cancel(oid, sl)
+                        except Exception as e:
+                            print(f"  ! cancel {str(oid)[:10]} on {sl[:30]} failed: "
+                                  f"{type(e).__name__}")
+
         print(f"== FLATTEN ({self.mode}) ==")
         proceeds = pnl_total = 0.0
         skipped = []
@@ -533,6 +561,8 @@ class UsMarketMaker:
             pnl = (price - avg) * qty
             proceeds += price * qty
             pnl_total += pnl
+            # never offer more than is actually held
+            qty = min(qty, int(net))
             note = f"{qty:>5} @ {price:.3f}  (avg {avg:.3f}, P&L ${pnl:+.2f})  {slug[:38]}"
             if self.mode != "live":
                 print(f"  would sell {note}")
