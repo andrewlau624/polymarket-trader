@@ -26,46 +26,53 @@ Still unknown: whether the venue **nets** the two legs of a pair. That decides
 whether key-number verticals return ~5% or ~470%, and `make ladder-trial`
 answers it by how much buying power a pair consumes.
 
-## Phase 1 — check state (any time, no risk)
+## The short set — eight commands
 
-    make account        # TRADEABLE = buying power. nothing is withdrawable.
-    make ladder-report  # do violations persist across sweeps?
+    make money      cash, positions, orders. TRADEABLE = buying power.
+    make find       hunt for mispricings in the background. Places nothing.
+    make found      what the hunt found, and whether it persists
+    make trade      place ONE bounded live trade ($2, 3 ladders, ~30s)
+    make out        cancel orders + exit positions. DRY RUN.
+    make out-live   same, for real
+    make quiet      stop every bot
+    make rules VSLUG=<slug>   what a market actually settles on
+
+Normal loop: `make find`, wait an hour, `make found`, then `make trade` if
+something stands. `make money` any time. `make quiet` when done.
+
+**Run `make trade` inside tmux.** It places real orders and dies with your
+session.
+
+After settlement a correct pair realises **the credit**, or **the credit plus
+~$1/share**. It cannot realise a loss. If it does, stop everything.
+
+## The longer list
+
+Hunting, in more detail:
+
+    make ladder-bg / ladder-report / ladder-kill    the scanner behind `find`
+    make ladder-scan        one sweep, totals the lockable dollars
+    make crossmarket-bg     outright vs the ladder's zero crossing
     make crossmarket-report
+    make families           every market family the venue lists
+    make hunt               the old reward-program scanner
 
-## Phase 2 — hunt (no orders, no capital)
+Exiting, in more detail:
 
-    make ladder-bg      # detached scanner, survives logout. ~15min/sweep.
-    make ladder-report  # check back in an hour
-    make ladder-kill
-
-    make crossmarket-bg # outright vs ladder zero crossing
-    make families       # what the venue lists at all
-
-Research that needs no venue at all:
-
-    make scores         # cache ESPN finals (one-off)
-    make keynumbers     # how lumpy football margins are
-    make calibrate      # price vs realised win rate on the cached tape
-    make ladder-test    # self-test: asserts the sign convention
-
-## Phase 3 — trade (REAL orders; run inside tmux)
-
-    tmux new -s trial
-    make ladder-trial   # $2, one sweep, 3 games. ~30s.
-    make account        # matched pairs? how much buying power went?
-
-Then wait for settlement. A correct pair realises **the credit**, or **the
-credit plus ~$1/share**. It cannot realise a loss. If it does, the sign
-convention is inverted — stop everything.
-
-## Phase 4 — unwind
-
-    make flatten        # dry run: shows bid/ask and the cost of crossing
-    make flatten-cross  # dry run: crosses only where the spread is tight
+    make flatten            dry run: rest sells at the ask
+    make flatten-cross      dry run: cross only where the spread is tight
     make flatten-cross-live
-    make cancel         # pull every resting order
+    make cancel             pull every resting order
 
 `flatten` is idempotent — it cancels its own prior orders first.
+
+Research, no venue needed:
+
+    make scores         cache ESPN finals (one-off)
+    make keynumbers     how lumpy football margins are
+    make calibrate      price vs realised win rate on the cached tape
+    make ladder-test    self-test: asserts the sign convention
+    make keyvertical GAME=<base>   exact-margin bets, ~100:1 payoff
 
 ## Timing
 

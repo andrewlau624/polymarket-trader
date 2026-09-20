@@ -47,10 +47,14 @@ TAPE_CAT  ?= Sports  # category for `make tape` (Sports, Crypto, Politics, LoL, 
 TAPE_EVENTS ?= 300
 LEAGUE    ?= cfb   # cfb | nfl, for `make keynumbers` and `make ladder`
 GAME      ?=       # e.g. asc-cfb-clmsn-cah-2026-09-25 for `make ladder`
-NEAR      ?= 12    # strikes nearest a pick'em to scan (violations cluster there)
-GAMES     ?= 25    # ladders to sweep per cycle
-CYCLE     ?= 20    # minutes between full sweeps in `make ladder-dry`
-TRIAL_CAP ?= 2     # $ for the first live trial
+# strikes nearest a pick'em to scan (violations cluster there)
+NEAR      ?= 12
+# ladders to sweep per cycle
+GAMES     ?= 25
+# minutes between full sweeps
+CYCLE     ?= 20 in `make ladder-dry`
+# $ for the first live trial
+TRIAL_CAP ?= 2
 # A trial needs ONE violation, not a full sweep. 3 games x 8 strikes is
 # ~30s instead of ~15min, which shrinks the window where a dropped session
 # could kill the process between the two legs of a pair.
@@ -70,59 +74,65 @@ LOAD = set -a; . $(ENVFILE) 2>/dev/null || true; set +a;
 
 man:
 	@cat PLAYBOOK.md
-.PHONY: man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families keyvertical paper live-test run stop restart status logs logs-paper results report install-services
+
+# ============ THE SHORT SET ============
+# Eight commands cover normal use. `make man` explains the rest.
+
+# money, positions, orders
+money: account
+
+# hunt for mispricings in the background (places nothing)
+find:
+	@$(MAKE) --no-print-directory ladder-bg
+	@echo "scanning. check with: make found"
+
+# what the hunt found
+found:
+	@$(MAKE) --no-print-directory ladder-report
+
+# place ONE bounded live trade ($(TRIAL_CAP) cap, 3 ladders, ~30s)
+trade:
+	@$(MAKE) --no-print-directory ladder-trial
+
+# get out of everything: cancel orders, exit positions where cheap
+out:
+	@$(MAKE) --no-print-directory cancel
+	@$(MAKE) --no-print-directory flatten-cross
+
+# same, for real
+out-live:
+	@$(MAKE) --no-print-directory cancel
+	@$(MAKE) --no-print-directory flatten-cross-live
+
+# what does a market actually settle on? read the venue's own rules
+rules:
+	@test -n "$(VSLUG)" || (echo "usage: make rules VSLUG=<market-slug>"; exit 1)
+	@$(MAKE) --no-print-directory verify
+
+# stop every bot
+quiet:
+	-@$(MAKE) --no-print-directory ladder-kill
+	-@$(MAKE) --no-print-directory stop 2>/dev/null || true
+
+
+.PHONY: money find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families keyvertical paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
-	@echo "  Polymarket US bot          (make man = the full playbook)"
-	@echo "  ------------------------------------------------------------"
-	@echo "  make setup           install python deps into .venv"
-	@echo "  make pull            git pull latest code"
-	@echo "  make check           verify keys, show balance + wallet programs"
-	@echo "  make account         your cash, open orders, positions, real rewards"
-	@echo "  make cancel          cancel ALL open orders (clean slate)"
-	@echo "  make flatten         DRY RUN: show the sells that would unwind inventory"
-	@echo "  make flatten-live    actually post those maker sells (rest at the ask)"
-	@echo "  make flatten-cross   DRY RUN: exit now at the bid, frees capital today"
-	@echo "  make hunt            scan EVERY program, list quotable markets"
-	@echo "                       e.g.  make hunt PERIOD=daily  |  make hunt MIN_POOL=0"
+	@echo "  Polymarket US"
+	@echo "  ---------------------------------------------------------"
+	@echo "  make money      cash, positions, orders"
+	@echo "  make find       hunt for mispricings (background, no orders)"
+	@echo "  make found      what the hunt found"
+	@echo "  make trade      place ONE bounded live trade (\$$$(TRIAL_CAP))"
+	@echo "  make out        cancel orders + exit positions (dry run)"
+	@echo "  make quiet      stop every bot"
 	@echo ""
-	@echo "  make paper           start PAPER run (no orders, collects data)"
-	@echo "  make report          summarize the paper run"
+	@echo "  make rules VSLUG=<slug>   what a market settles on"
+	@echo "  make man                  the full playbook"
 	@echo ""
-	@echo "  make live-test       place ONE tiny real order then cancel"
-	@echo "  make run             start LIVE bot in the background"
-	@echo "  make stop            stop the live + paper services"
-	@echo "  make restart         restart the live bot"
-	@echo "  make status          is it running?"
-	@echo "  make logs            follow live output   (Ctrl-C to stop watching)"
-	@echo "  make logs-paper      follow paper output"
-	@echo ""
-	@echo "  make results         real rewards earned + paper estimate"
-	@echo ""
-	@echo "  RESEARCH (no capital at risk)"
-	@echo "  make calibrate       price vs realized win rate, split by category"
-	@echo "  make tape            cache the tape for TAPE_CAT=$(TAPE_CAT) and label it"
-	@echo "  make watch           log the US book against the live ESPN event feed"
-	@echo "  make lag             analyse that log: latency + win-prob divergence"
-	@echo "  make scores          cache historical NFL/CFB finals from ESPN"
-	@echo "  make keynumbers      how lumpy football margins really are"
-	@echo "  make ladder          spread-ladder shape on the live venue (GAME=<base>)"
-	@echo "  make ladder-scan     sweep every ladder, total the lockable dollars"
-	@echo "  make verify          read the venue's OWN settlement rules (VSLUG=<slug>)"
-	@echo "  make ladder-probe    can we short at all? (one 1-share test order)"
-	@echo "  make ladder-dry      scan the slate on a cycle, place nothing"
-	@echo "  make ladder-bg       same but detached - survives ^C and logout"
-	@echo "  make ladder-report   do the violations persist across sweeps?"
-	@echo "  make ladder-trial    FIRST LIVE RUN: $(TRIAL_CAP) dollars, one sweep, settles fast"
-	@echo "  make families        what market families exist (totals? UFC rounds?)"
-	@echo "  make crossmarket     moneyline vs the ladder zero crossing"
-	@echo "  make crossmarket-bg  same, detached (survives a dropped session)"
-	@echo "  make keyvertical     exact-margin bets: ~100:1 payoff, REAL risk (GAME=<base>)"
-	@echo "  make ladder-kill     stop the detached scanner"
-	@echo ""
-	@echo "  knobs: SIZE=$(SIZE) contracts/order  MARKETS=$(MARKETS)  MAX_INV=\$$$(MAX_INV)/market  BUY BAND=$(MIN_PX)-$(MAX_PX)"
-	@echo "         MIN_POOL=$(MIN_POOL)  MAX_TARGET=$(MAX_TARGET)  PERIOD=$(PERIOD)  ENDING_WITHIN=$(ENDING_WITHIN)"
+	@echo "  first time here:  make setup"
+	@echo "  latest code:      make pull"
 	@echo ""
 
 setup:
