@@ -24,6 +24,8 @@ USER_NAME ?= $(shell id -un)
 SIZE      ?= 5
 NOTIONAL  ?= 0     # $ per order (overrides SIZE); e.g. 5 = ~$5/order
 MARKETS   ?= 2
+# $ of cost basis per market before the bot stops bidding it (0 = no cap)
+MAX_INV   ?= 10
 MIN_POOL  ?= 1000
 MAX_TARGET ?= 0    # 0 = any; e.g. 1000 to prefer small-Target-Size programs
 PERIOD     ?= any  # any | early | day_of | live | daily_event  (daily_event pays daily)
@@ -37,7 +39,7 @@ SCAN      ?= 200   # candidates to book-scan in `make hunt`
 LOAD = set -a; . $(ENVFILE) 2>/dev/null || true; set +a;
 
 .DEFAULT_GOAL := help
-.PHONY: help setup pull check hunt account cancel paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: help setup pull check hunt account cancel flatten flatten-live paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -48,6 +50,8 @@ help:
 	@echo "  make check           verify keys, show balance + wallet programs"
 	@echo "  make account         your cash, open orders, positions, real rewards"
 	@echo "  make cancel          cancel ALL open orders (clean slate)"
+	@echo "  make flatten         DRY RUN: show the sells that would unwind inventory"
+	@echo "  make flatten-live    actually post those maker sells"
 	@echo "  make hunt            scan EVERY program, list quotable markets"
 	@echo "                       e.g.  make hunt PERIOD=daily  |  make hunt MIN_POOL=0"
 	@echo ""
@@ -64,7 +68,7 @@ help:
 	@echo ""
 	@echo "  make results         real rewards earned + paper estimate"
 	@echo ""
-	@echo "  knobs: SIZE=$(SIZE) contracts/order  MARKETS=$(MARKETS)  MIN_POOL=$(MIN_POOL)  MAX_TARGET=$(MAX_TARGET)  PERIOD=$(PERIOD)  ENDING_WITHIN=$(ENDING_WITHIN)"
+	@echo "  knobs: SIZE=$(SIZE) contracts/order  MARKETS=$(MARKETS)  MAX_INV=\$$$(MAX_INV)/market  MIN_POOL=$(MIN_POOL)  MAX_TARGET=$(MAX_TARGET)  PERIOD=$(PERIOD)  ENDING_WITHIN=$(ENDING_WITHIN)"
 	@echo ""
 
 setup:
@@ -83,6 +87,16 @@ account:
 
 cancel:
 	$(LOAD) $(PY) mm_bot_us.py --cancel-all
+
+flatten:
+	$(LOAD) $(PY) mm_bot_us.py --flatten
+
+flatten-live:
+	@echo "posting post-only sells at the best ask for every long position…"
+	$(LOAD) $(PY) mm_bot_us.py --flatten --live
+	@echo ""
+	@echo "they rest until filled. 'make account' to check, 'make cancel' to pull them."
+	@echo "NOTE: 'make run' cancels all resting orders on startup, including these."
 
 hunt:
 	$(LOAD) $(PY) mm_bot_us.py --hunt --period $(PERIOD) --category $(CATEGORY) --min-pool $(MIN_POOL) --max-target $(MAX_TARGET) --scan $(SCAN)
@@ -109,7 +123,7 @@ live-test:
 	@echo "if you saw no error, the order placed fine. Now run:  make run"
 
 run: install-services
-	@echo "starting LIVE bot (bid-only, $(SIZE) contracts/order, $(MARKETS) markets)…"
+	@echo "starting LIVE bot ($(SIZE) contracts/order, $(MARKETS) markets, max \$$$(MAX_INV) inventory each)…"
 	@sudo systemctl enable --now $(LIVE_SVC)
 	@sudo systemctl restart $(LIVE_SVC)
 	@sudo systemctl status $(LIVE_SVC) --no-pager | head -6
@@ -176,7 +190,7 @@ install-services:
 	  'User=$(USER_NAME)' \
 	  'WorkingDirectory=$(APP_DIR)' \
 	  'EnvironmentFile=-$(ENVFILE)' \
-	  'ExecStart=$(PY) -u mm_bot_us.py --live --buy-only --max-markets $(MARKETS) --min-pool $(MIN_POOL) --max-target $(MAX_TARGET) --category $(CATEGORY) --period $(PERIOD) --max-per-period $(MAX_PER_PERIOD) --ending-within $(ENDING_WITHIN) --size $(SIZE) --notional $(NOTIONAL) --refresh 30 --reselect-min $(RESELECT)' \
+	  'ExecStart=$(PY) -u mm_bot_us.py --live --buy-only --max-markets $(MARKETS) --min-pool $(MIN_POOL) --max-target $(MAX_TARGET) --category $(CATEGORY) --period $(PERIOD) --max-per-period $(MAX_PER_PERIOD) --ending-within $(ENDING_WITHIN) --size $(SIZE) --notional $(NOTIONAL) --max-inventory $(MAX_INV) --refresh 30 --reselect-min $(RESELECT)' \
 	  'Restart=always' \
 	  'RestartSec=20' \
 	  '' \

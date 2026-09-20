@@ -10,6 +10,8 @@ Usage:
     python mm_bot_us.py --check        # auth + balances + programs + a book
     python mm_bot_us.py                # paper quoting (default)
     python mm_bot_us.py --live         # real orders (post-only maker)
+    python mm_bot_us.py --account      # cash, orders, positions, real rewards
+    python mm_bot_us.py --flatten      # dry-run the sells that unwind inventory
 """
 
 import argparse
@@ -26,6 +28,47 @@ def _num(x, default=0.0):
         return float(x)
     except (TypeError, ValueError):
         return default
+
+
+# every money field on this API can arrive as a bare number, a numeric string,
+# or an Amount object {"value": "9.01", "currency": "USD"}
+def _amt(x):
+    """Amount-aware float, or None when the field is absent/unparseable.
+
+    Returns None rather than 0.0 so a key the API never sent renders as 'n/a'
+    instead of a confident $0.00 (which is how 'in positions $0.00' got printed
+    against $34 of real inventory).
+    """
+    if isinstance(x, dict):
+        x = x.get("value")
+    if x is None:
+        return None
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
+
+
+def _money(v):
+    return "n/a" if v is None else f"${v:,.2f}"
+
+
+def _position_row(v):
+    """(net shares, cost basis $, realized $) from one portfolio position."""
+    if not isinstance(v, dict):
+        return 0.0, 0.0, 0.0
+    return (_amt(v.get("netPosition")) or 0.0,
+            _amt(v.get("cost")) or 0.0,
+            _amt(v.get("realized")) or 0.0)
+
+
+# fields the balance line already explains; anything else gets dumped raw so
+# the real schema is discoverable instead of guessed at
+_KNOWN_BALANCE_KEYS = {"currentBalance", "buyingPower", "balanceReservation",
+                       "assetNotional", "currency"}
+# statuses that mean the reward actually landed. Anything else (SKIPPED,
+# PENDING, ...) has not paid, so it is reported separately.
+_PAID_STATUSES = {"PAID", "CREDITED", "COMPLETED", "SETTLED", "SUCCESS"}
 
 
 def _hours_between(a, b):
@@ -70,6 +113,7 @@ class UsMarketMaker:
         self.args = args
         self.client = UsClient()
         self.orders = {}          # slug -> [order_id]
+        self.pos = {}             # slug -> position row, refreshed per iteration
         self.last_best = {}
         self.mode = "live" if args.live else "paper"
         self.start = time.time()
@@ -224,6 +268,18 @@ class UsMarketMaker:
         rows.sort(key=lambda r: r["pool"], reverse=True)
         return rows[: self.args.scan]
 
+    def _refresh_positions(self):
+        """One positions call per loop iteration; sizing and exits both read it."""
+        try:
+            self.pos = self.client.positions() or {}
+        except Exception:
+            pass          # stale inventory is better than a dead iteration
+
+    def _inventory(self, slug):
+        """(net shares held, cost basis $) for one market."""
+        net, cost, _ = _position_row(self.pos.get(slug))
+        return net, cost
+
     def _size_for(self, price):
         if self.args.notional:
             return max(1, int(self.args.notional / max(price or 0.5, 0.01)))
@@ -246,9 +302,11 @@ class UsMarketMaker:
             best_bid, best_ask = ref_bid, ref_ask
         tick = max(self.args.tick, 1e-4)
         size = self._size_for(best_bid)
+        held, _held_cost = self._inventory(prog["slug"])
+        sell_size = size if not self.args.buy_only else int(min(held, size))
         cb, ob = score_side(bids, best_bid, prog["discount"], prog["target"], tick, best_bid, size)
         ca, oa = score_side(asks, best_ask, prog["discount"], prog["target"], tick,
-                            best_ask, 0 if self.args.buy_only else size)
+                            best_ask, sell_size)
         in_band = (self.args.min_price <= best_bid <= self.args.max_price
                    and self.args.min_price <= best_ask <= self.args.max_price)
         our, comp = ob + oa, cb + ca
@@ -272,50 +330,159 @@ class UsMarketMaker:
     def account(self):
         """Plain-English view of your live account: cash, orders, positions, earnings."""
         c = self.client
-        print("== ACCOUNT ==")
+
+        positions = {}
         try:
-            for b in (c.balances().get("balances") or []):
-                print(f"  cash ${_num(b.get('currentBalance')):,.2f}   "
-                      f"buying power ${_num(b.get('buyingPower')):,.2f}   "
-                      f"reserved ${_num(b.get('balanceReservation')):,.2f}   "
-                      f"in positions ${_num(b.get('assetNotional')):,.2f}")
+            positions = c.positions() or {}
+        except Exception as e:
+            print(f"positions failed: {type(e).__name__} {e}")
+        cost_basis = sum(_position_row(v)[1] for v in positions.values())
+
+        print("== ACCOUNT ==")
+        reserved = None
+        try:
+            rows = c.balances().get("balances") or []
+            if not rows:
+                print("  (the API returned no balance rows)")
+            for b in rows:
+                cash = _amt(b.get("currentBalance"))
+                bp = _amt(b.get("buyingPower"))
+                reserved = _amt(b.get("balanceReservation"))
+                print(f"  cash {_money(cash)}   buying power {_money(bp)}   "
+                      f"reserved {_money(reserved)}")
+                if cash is not None and reserved is not None:
+                    free = cash - reserved
+                    print(f"  free (cash - reserved) {_money(free)}")
+                    if bp is not None and abs(bp - free) > 0.01:
+                        print(f"  ! the API's buyingPower {_money(bp)} disagrees with "
+                              f"cash - reserved {_money(free)}")
+                extra = sorted(set(b) - _KNOWN_BALANCE_KEYS)
+                if extra:
+                    print(f"  other balance fields: "
+                          f"{json.dumps({k: b[k] for k in extra})[:240]}")
         except Exception as e:
             print(f"  balances failed: {type(e).__name__} {e}")
+        # assetNotional has reported $0.00 against real inventory, so value the
+        # book from the portfolio instead of trusting that field
+        print(f"  in positions {_money(cost_basis)} at cost across "
+              f"{len(positions)} market{'' if len(positions) == 1 else 's'}")
 
         print("\n== OPEN ORDERS ==")
+        committed = 0.0
         try:
             orders = c.open_orders()
             if not orders:
                 print("  none")
-            for o in orders:
+            for o in sorted(orders, key=lambda r: str(r.get("marketSlug") or "")):
                 slug = o.get("marketSlug") or o.get("slug") or "?"
-                side = o.get("intent") or o.get("side") or "?"
-                price = o.get("price")
-                price = price.get("value") if isinstance(price, dict) else price
-                qty = o.get("quantity") or o.get("remainingQuantity") or o.get("qty")
-                oid = (o.get("orderId") or o.get("id") or "")[:10]
-                print(f"  {str(side):<22} {str(qty):>6} @ {price}  {slug[:42]}  {oid}")
-            print(f"  total: {len(orders)}")
+                side = str(o.get("intent") or o.get("side") or "?")
+                if side.startswith("ORDER_INTENT_"):
+                    side = side[len("ORDER_INTENT_"):]
+                price = _amt(o.get("price")) or 0.0
+                orig = _amt(o.get("quantity")) or 0.0
+                # a partial fill leaves 'quantity' at the original size, so the
+                # working size is remainingQuantity when the venue sends it
+                left = _amt(o.get("remainingQuantity"))
+                left = orig if left is None else left
+                filled = max(orig - left, 0.0)
+                oid = str(o.get("orderId") or o.get("id") or "")[:10]
+                if side.startswith("BUY"):
+                    committed += left * price
+                fill_s = f"{filled:.0f} filled" if filled > 0 else ""
+                print(f"  {side:<10} {left:>6.0f} @ {price:<5.2f} = ${left * price:>6.2f}  "
+                      f"{fill_s:<10} {slug[:38]:<38} {oid}")
+            print(f"  total: {len(orders)} orders, ${committed:,.2f} of buy-side collateral")
+            if reserved is not None and committed > reserved + 0.01:
+                print(f"  ! these bids need ${committed:,.2f} but the venue only reserved "
+                      f"{_money(reserved)} -")
+                print(f"    some rows are stale or already partly filled")
         except Exception as e:
             print(f"  orders failed: {type(e).__name__} {e}")
 
         print("\n== POSITIONS ==")
-        try:
-            pos = c.positions()
-            if not pos:
-                print("  none (nothing filled yet)")
-            else:
-                for k, v in list(pos.items())[:20]:
-                    print(f"  {k[:44]}  {json.dumps(v)[:140]}")
-        except Exception as e:
-            print(f"  positions failed: {type(e).__name__} {e}")
+        if not positions:
+            print("  none (nothing filled yet)")
+        else:
+            print(f"  {'market':<38} {'net':>6} {'cost':>9} {'avg':>7} {'realized':>9}")
+            for k, v in sorted(positions.items()):
+                net, cost, realized = _position_row(v)
+                avg = cost / net if net else 0.0
+                print(f"  {k[:38]:<38} {net:>6.0f} {'$%.2f' % cost:>9} "
+                      f"{avg:>7.3f} {'$%.2f' % realized:>9}")
+            print(f"  {'TOTAL':<38} {'':>6} {'$%.2f' % cost_basis:>9}")
 
         print("\n== REWARDS EARNED (real) ==")
         try:
-            print(f"  {json.dumps(c.earnings())[:400]}")
+            data = c.earnings()
+            rows = data.get("rewards") if isinstance(data, dict) else None
+            if rows is None:
+                print(f"  unrecognized shape: {json.dumps(data)[:240]}")
+            elif not rows:
+                print("  none yet")
+            else:
+                by = {}
+                for r in rows:
+                    st = str(r.get("status") or "?")
+                    n, tot = by.get(st, (0, 0.0))
+                    by[st] = (n + 1, tot + (_amt(r.get("reward")) or 0.0))
+                for st, (n, tot) in sorted(by.items(), key=lambda kv: -kv[1][1]):
+                    mark = "" if st.upper() in _PAID_STATUSES else "   (not credited)"
+                    print(f"  {st:<12} {n:>4} rewards  ${tot:>9.4f}{mark}")
+                total = sum(t for _, t in by.values())
+                paid = sum(t for st, (_, t) in by.items() if st.upper() in _PAID_STATUSES)
+                print(f"  {'TOTAL':<12} {len(rows):>4} rewards  ${total:>9.4f}"
+                      f"   credited ${paid:,.4f}")
         except Exception as e:
             print(f"  earnings failed: {type(e).__name__} {e}")
         print("\nNOTE: rewards land after the period ends (<=5 business days) + <=2 to credit.")
+
+    def flatten(self):
+        """Post maker sells for every open position, unwinding inventory.
+
+        Without --live this is a dry run. Orders rest at the best ask, so they
+        pay no spread; 'make cancel' (or a live bot start) pulls them.
+        """
+        try:
+            positions = self.client.positions() or {}
+        except Exception as e:
+            print(f"positions failed: {type(e).__name__} {e}")
+            return
+        longs = {k: v for k, v in positions.items() if _position_row(v)[0] >= 1}
+        if not longs:
+            print("no long positions to flatten")
+            return
+        print(f"== FLATTEN ({self.mode}) ==")
+        proceeds = pnl_total = 0.0
+        for slug, v in sorted(longs.items()):
+            net, cost, _ = _position_row(v)
+            qty = int(net)
+            try:
+                bid, ask, _bids, _asks = self.client.reference(slug)
+            except Exception as e:
+                print(f"  {slug[:38]:<38} book read failed: {type(e).__name__}")
+                continue
+            price = ask if ask else (bid + self.args.tick if bid else None)
+            if price is None:
+                print(f"  {slug[:38]:<38} no price available - skipped")
+                continue
+            price = round(min(0.99, max(0.01, price)), 3)
+            avg = cost / qty if qty else 0.0
+            pnl = (price - avg) * qty
+            proceeds += price * qty
+            pnl_total += pnl
+            note = f"{qty:>5} @ {price:.3f}  (avg {avg:.3f}, P&L ${pnl:+.2f})  {slug[:38]}"
+            if self.mode != "live":
+                print(f"  would sell {note}")
+                continue
+            try:
+                self.client.place(slug, "sell", price, qty, maker=True)
+                print(f"  sell       {note}")
+            except Exception as e:
+                print(f"  {slug[:38]:<38} sell failed: {type(e).__name__} {str(e)[:70]}")
+        print(f"\n  proceeds if all fill: ${proceeds:,.2f}   P&L ${pnl_total:+,.2f}")
+        if self.mode != "live":
+            print("  dry run - add --live (or use 'make flatten-live') to place these.")
+
 
     def hunt(self):
         """Book-scan every program matching the filters; report quotable ones."""
@@ -433,17 +600,36 @@ class UsMarketMaker:
                     "note": f"size {size} < target {target:.0f} and book empty -> cannot qualify",
                     "repriced": False, "under_target": True}
 
-        if not (self.args.min_price <= best_bid <= self.args.max_price):
-            return {"ts": datetime.now(timezone.utc).isoformat(), "mode": self.mode,
-                    "slug": slug, "pool": prog["pool"], "share": 0.0, "est_daily": 0.0,
-                    "note": f"price {best_bid:.3f} outside band", "repriced": False}
         # join the best price on each side (post-only maker)
         buy_px, sell_px = best_bid, best_ask
-        if self.args.buy_only:
+        held, held_cost = self._inventory(slug)
+        # --buy-only means "no shorting", not "never exit". When we are long we
+        # can quote the ask up to the size we actually own: that scores the ask
+        # side AND unwinds inventory, instead of only ever accumulating it.
+        sell_size = size if not self.args.buy_only else int(min(held, size))
+        buy_size = size
+        # Anything that should stop us BUYING only zeroes the bid. The exit has
+        # to survive it, or inventory that drifted out of the band (the lottery
+        # tickets we most want gone) could never be quoted out.
+        held_off = []
+        if not (self.args.min_price <= best_bid <= self.args.max_price):
+            buy_size = 0
+            held_off.append(f"bid {best_bid:.3f} outside band")
+        if self.args.max_inventory and held_cost >= self.args.max_inventory:
+            buy_size = 0
+            held_off.append(f"inventory ${held_cost:,.2f} at cap "
+                            f"${self.args.max_inventory:,.2f}")
+        if sell_size <= 0:
             sell_px = None
-        comp_b, ours_b = score_side(bids, best_bid, prog["discount"], prog["target"], tick, buy_px, size)
+        if buy_size <= 0 and sell_size <= 0:
+            self._cancel(slug)
+            return {"ts": datetime.now(timezone.utc).isoformat(), "mode": self.mode,
+                    "slug": slug, "pool": prog["pool"], "share": 0.0, "est_daily": 0.0,
+                    "note": "; ".join(held_off) or "nothing to quote",
+                    "repriced": False}
+        comp_b, ours_b = score_side(bids, best_bid, prog["discount"], prog["target"], tick, buy_px, buy_size)
         comp_a, ours_a = score_side(asks, best_ask, prog["discount"], prog["target"], tick,
-                                    sell_px if sell_px else best_ask, 0 if sell_px is None else size)
+                                    best_ask, sell_size)
         our = ours_b + ours_a
         comp = comp_b + comp_a
         share = our / (our + comp) if (our + comp) > 0 else 0.0
@@ -454,7 +640,11 @@ class UsMarketMaker:
             "best_bid": best_bid, "best_ask": best_ask, "share": round(share, 4),
             "est_daily": round(share * prog["pool"] / max(dur_h / 24.0, 1e-6), 4),
             "est_period": round(share * prog["pool"], 4), "size": size,
+            "buy_size": buy_size, "sell_size": sell_size,
+            "held": held, "held_cost": round(held_cost, 2),
         }
+        if held_off:
+            metric["note"] = "; ".join(held_off) + " -> exit only"
 
         # reprice only when the touch moves
         if self.last_best.get(slug) == (best_bid, best_ask) and self.orders.get(slug):
@@ -463,15 +653,17 @@ class UsMarketMaker:
         self._cancel(slug)
         if self.mode == "live":
             try:
-                o = self.client.place(slug, "buy", buy_px, size, maker=True)
-                self.orders.setdefault(slug, []).append(_oid(o))
-                if sell_px is not None:
-                    o = self.client.place(slug, "sell", sell_px, size, maker=True)
+                if buy_size > 0:
+                    o = self.client.place(slug, "buy", buy_px, buy_size, maker=True)
+                    self.orders.setdefault(slug, []).append(_oid(o))
+                if sell_px is not None and sell_size > 0:
+                    o = self.client.place(slug, "sell", sell_px, sell_size, maker=True)
                     self.orders.setdefault(slug, []).append(_oid(o))
             except Exception as e:
                 metric["error"] = f"{type(e).__name__}: {str(e)[:120]}"
         else:
-            self.orders[slug] = [f"paper-buy-{slug}", f"paper-sell-{slug}"]
+            self.orders[slug] = ([f"paper-buy-{slug}"] if buy_size > 0 else []
+                                 ) + ([f"paper-sell-{slug}"] if sell_size > 0 else [])
         self.last_best[slug] = (best_bid, best_ask)
         return metric
 
@@ -523,6 +715,8 @@ class UsMarketMaker:
         try:
           while True:
             it += 1
+            # inventory drives both the bid size and the exit quote
+            self._refresh_positions()
             # live windows are short: re-select so we roll into the next event
             # instead of quoting a period that already ended
             if (self.args.reselect_min
@@ -585,7 +779,9 @@ class UsMarketMaker:
             extra = (f"| best share={best['share']:.3f} ({best['slug'][:26]})"
                      if best else "")
             errs = sum(1 for m in self._last_metric.values() if m.get("error"))
-            print(f"[iter {it}] est ${live_est:,.2f}/day | orders {n_orders} {extra} "
+            inv = sum(_position_row(v)[1] for v in self.pos.values())
+            print(f"[iter {it}] est ${live_est:,.2f}/day | orders {n_orders} "
+                  f"| inventory ${inv:,.2f} {extra} "
                   f"| errors {errs} | earnings {json.dumps(real)[:50] if real else '-'}")
             if self.args.once or (self.args.iterations and it >= self.args.iterations):
                 break
@@ -681,7 +877,15 @@ def main():
                     help="only programs whose Target Size is <= this (0 = any). "
                          "Small targets give a small order a bigger share.")
     ap.add_argument("--buy-only", action="store_true",
-                    help="place bids only (no shorting / no inventory)")
+                    help="never short: bid freely, and only ever sell shares "
+                         "already held (an exit, not a new short position)")
+    ap.add_argument("--max-inventory", type=float, default=0.0,
+                    help="stop bidding a market once its cost basis reaches $N "
+                         "(0 = no cap). Keeps cash from turning into a pile of "
+                         "one-sided directional bets.")
+    ap.add_argument("--flatten", action="store_true",
+                    help="post maker sells for every long position and exit "
+                         "(dry run unless --live is also passed)")
     ap.add_argument("--ending-within", type=float, default=0.0,
                     help="only programs whose time period ends within N hours "
                          "(faster payout signal; 0 = any)")
@@ -711,6 +915,13 @@ def main():
         if not os.environ.get("POLYMARKET_US_KEY_ID"):
             raise SystemExit("set POLYMARKET_US_KEY_ID / POLYMARKET_US_SECRET_KEY")
         UsMarketMaker(args).hunt()
+        return
+    if args.flatten:
+        if not os.environ.get("POLYMARKET_US_KEY_ID"):
+            raise SystemExit("set POLYMARKET_US_KEY_ID / POLYMARKET_US_SECRET_KEY")
+        mm = UsMarketMaker(args)
+        mm.flatten()
+        mm.client.close()
         return
     if not os.environ.get("POLYMARKET_US_KEY_ID"):
         raise SystemExit("set POLYMARKET_US_KEY_ID and POLYMARKET_US_SECRET_KEY")
