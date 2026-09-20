@@ -26,6 +26,13 @@ NOTIONAL  ?= 0     # $ per order (overrides SIZE); e.g. 5 = ~$5/order
 MARKETS   ?= 2
 # $ of cost basis per market before the bot stops bidding it (0 = no cap)
 MAX_INV   ?= 10
+# Price band the bot is willing to BUY in. Exits are never gated by it.
+# 0.60 is the crossover in run_calibration.py: every bucket below it priced
+# 0.15-0.60 came back neutral-to-negative, and 0.15-0.30 was significantly
+# negative. Raise to 0.75 to lean on the one positive bucket, at the cost of
+# betting on a finding that has not been validated out of sample.
+MIN_PX    ?= 0.60
+MAX_PX    ?= 0.90
 MIN_POOL  ?= 1000
 MAX_TARGET ?= 0    # 0 = any; e.g. 1000 to prefer small-Target-Size programs
 PERIOD     ?= any  # any | early | day_of | live | daily_event  (daily_event pays daily)
@@ -34,12 +41,14 @@ MAX_PER_PERIOD ?= 0 # cap markets per period (2 = diversify across live/daily)
 ENDING_WITHIN ?= 0 # only periods ending within N hours (faster payout signal)
 RESELECT  ?= 30    # minutes between re-picking markets (live windows end fast)
 SCAN      ?= 200   # candidates to book-scan in `make hunt`
+WATCH_MIN ?= 120   # minutes for `make watch` to record book + event feed
+EDGE_LOG  ?= research/us_edge_log.jsonl
 
 # makes API keys from ENVFILE available to any recipe line
 LOAD = set -a; . $(ENVFILE) 2>/dev/null || true; set +a;
 
 .DEFAULT_GOAL := help
-.PHONY: help setup pull check hunt account cancel flatten flatten-live paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: help setup pull check hunt account cancel flatten flatten-live calibrate watch lag paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -68,7 +77,13 @@ help:
 	@echo ""
 	@echo "  make results         real rewards earned + paper estimate"
 	@echo ""
-	@echo "  knobs: SIZE=$(SIZE) contracts/order  MARKETS=$(MARKETS)  MAX_INV=\$$$(MAX_INV)/market  MIN_POOL=$(MIN_POOL)  MAX_TARGET=$(MAX_TARGET)  PERIOD=$(PERIOD)  ENDING_WITHIN=$(ENDING_WITHIN)"
+	@echo "  RESEARCH (no capital at risk)"
+	@echo "  make calibrate       price vs realized win rate on the cached tape"
+	@echo "  make watch           log the US book against the live ESPN event feed"
+	@echo "  make lag             analyse that log: latency + win-prob divergence"
+	@echo ""
+	@echo "  knobs: SIZE=$(SIZE) contracts/order  MARKETS=$(MARKETS)  MAX_INV=\$$$(MAX_INV)/market  BUY BAND=$(MIN_PX)-$(MAX_PX)"
+	@echo "         MIN_POOL=$(MIN_POOL)  MAX_TARGET=$(MAX_TARGET)  PERIOD=$(PERIOD)  ENDING_WITHIN=$(ENDING_WITHIN)"
 	@echo ""
 
 setup:
@@ -110,6 +125,18 @@ paper: install-services
 
 report:
 	$(LOAD) $(PY) mm_bot_us.py --report
+
+# ---------- research (no orders, no capital) -----------------------------
+
+calibrate:
+	$(PY) run_calibration.py --split-half
+
+watch:
+	@echo "logging the book + ESPN plays for $(WATCH_MIN) minutes (no orders placed)…"
+	$(LOAD) $(PY) log_edge.py --minutes $(WATCH_MIN) --out $(EDGE_LOG)
+
+lag:
+	$(PY) analyze_lag.py $(EDGE_LOG)
 
 # ---------- live ---------------------------------------------------------
 
@@ -190,7 +217,7 @@ install-services:
 	  'User=$(USER_NAME)' \
 	  'WorkingDirectory=$(APP_DIR)' \
 	  'EnvironmentFile=-$(ENVFILE)' \
-	  'ExecStart=$(PY) -u mm_bot_us.py --live --buy-only --max-markets $(MARKETS) --min-pool $(MIN_POOL) --max-target $(MAX_TARGET) --category $(CATEGORY) --period $(PERIOD) --max-per-period $(MAX_PER_PERIOD) --ending-within $(ENDING_WITHIN) --size $(SIZE) --notional $(NOTIONAL) --max-inventory $(MAX_INV) --refresh 30 --reselect-min $(RESELECT)' \
+	  'ExecStart=$(PY) -u mm_bot_us.py --live --buy-only --max-markets $(MARKETS) --min-pool $(MIN_POOL) --max-target $(MAX_TARGET) --category $(CATEGORY) --period $(PERIOD) --max-per-period $(MAX_PER_PERIOD) --ending-within $(ENDING_WITHIN) --size $(SIZE) --notional $(NOTIONAL) --max-inventory $(MAX_INV) --min-price $(MIN_PX) --max-price $(MAX_PX) --refresh 30 --reselect-min $(RESELECT)' \
 	  'Restart=always' \
 	  'RestartSec=20' \
 	  '' \

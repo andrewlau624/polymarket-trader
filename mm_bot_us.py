@@ -866,9 +866,12 @@ def main():
     ap.add_argument("--min-pool", type=float, default=100.0)
     ap.add_argument("--size", type=float, default=20, help="contracts per side")
     ap.add_argument("--min-price", type=float, default=0.05,
-                    help="never bid below this price (avoid lottery tickets)")
+                    help="never BUY below this price. Exits are not gated by the "
+                         "band. See run_calibration.py: sub-0.60 buckets came back "
+                         "neutral-to-negative on the cached tape, 0.15-0.30 "
+                         "significantly negative. `make run` passes MIN_PX=0.60.")
     ap.add_argument("--max-price", type=float, default=0.90,
-                    help="never bid above this price")
+                    help="never buy above this price")
     ap.add_argument("--notional", type=float, default=0.0,
                     help="dollar notional per order (overrides --size), e.g. 5 = ~$5/order")
     ap.add_argument("--tick", type=float, default=0.01)
