@@ -59,7 +59,7 @@ EDGE_LOG  ?= research/us_edge_log.jsonl
 LOAD = set -a; . $(ENVFILE) 2>/dev/null || true; set +a;
 
 .DEFAULT_GOAL := help
-.PHONY: help setup pull check hunt account cancel flatten flatten-live calibrate tape watch lag scores keynumbers ladder ladder-test ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket families paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: help setup pull check hunt account cancel flatten flatten-live calibrate tape watch lag scores keynumbers ladder ladder-test ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket families keyvertical paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -104,6 +104,7 @@ help:
 	@echo "  make ladder-trial    FIRST LIVE RUN: $(TRIAL_CAP) dollars, one sweep, settles fast"
 	@echo "  make families        what market families exist (totals? UFC rounds?)"
 	@echo "  make crossmarket     moneyline vs the ladder zero crossing"
+	@echo "  make keyvertical     exact-margin bets: ~100:1 payoff, REAL risk (GAME=<base>)"
 	@echo "  make ladder-kill     stop the detached scanner"
 	@echo ""
 	@echo "  knobs: SIZE=$(SIZE) contracts/order  MARKETS=$(MARKETS)  MAX_INV=\$$$(MAX_INV)/market  BUY BAND=$(MIN_PX)-$(MAX_PX)"
@@ -206,6 +207,11 @@ ladder-kill:
 # two books, one event: moneyline vs the ladder's zero crossing
 crossmarket:
 	$(LOAD) $(PY) run_crossmarket.py --max-games $(GAMES)
+
+# exact-margin verticals: small premium, ~100:1 payoff, REAL risk
+keyvertical:
+	@test -n "$(GAME)" || (echo "usage: make keyvertical GAME=asc-cfb-clmsn-cah-2026-09-25"; exit 1)
+	$(LOAD) $(PY) run_keyvertical.py --slug-prefix $(GAME) --league $(LEAGUE)
 
 # what market families exist at all (totals? UFC rounds? half/quarter ladders?)
 families:

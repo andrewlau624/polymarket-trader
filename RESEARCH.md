@@ -594,6 +594,60 @@ Deliberately not pursued: anything needing the ladder to be a valid
 distribution (blocked), anything needing a low-latency feed (dead, section 4),
 and anything needing size (the account is the constraint, section 12).
 
+## 15. Higher reward:risk — exact-margin verticals
+
+Two adjacent strikes isolate one margin. Long the higher line, short the lower,
+and the pair pays $1 if the margin lands between them and $0 otherwise, so the
+**maximum loss is the premium**. On `clmsn-cah` the margin-3 vertical costs
+**0.010** on executable prices, for a 99:1 payoff. Unlike the arbitrage, this
+can lose.
+
+The robust argument needs no key-number claim at all. Fit a normal to the
+ladder's own strikes - `clmsn-cah` implies margin ~ **Normal(+3.0, 13.0)** -
+and then:
+
+```
+margin 3: ladder charges 0.010, its OWN fitted shape says 0.0307  -> EV +0.021
+margin 1: ladder charges 0.000, its OWN fitted shape says 0.0303  -> EV +0.030
+margin 2: ladder charges 0.100, its OWN fitted shape says 0.0306  -> EV -0.069
+```
+
+**The ladder disagrees with itself.** Adjacent 1-point strikes near the money
+are priced ~0.005 apart when a 13-point-wide distribution implies ~0.03 a step.
+That is the same defect as the monotonicity violations - insufficient spacing
+in the near-money region - and it makes the cheap verticals positive-EV without
+any appeal to football scoring. Note margin 2 is *overpriced* on the same
+ladder, so this is not a blanket "buy verticals" claim.
+
+Key numbers are then a kicker on top. Measured as a **local spike** against
+neighbouring margins:
+
+```
+NFL  R(3) 3.20x  R(7) 2.07x  R(10) 2.07x  R(14) 2.48x  R(1) 0.48x
+CFB  R(3) 3.24x  R(7) 3.47x  R(10) 2.39x  R(14) 2.82x  R(1) 0.54x
+```
+
+An earlier version divided by a global normal fitted to `|margin|` and got
+R(3) = 6.0, which was measuring "3 is far below the mean absolute margin"
+rather than "3 is a spike" - a folded distribution is nothing like a normal, so
+that denominator was meaningless. `run_keyvertical.py` gates on the smooth EV
+and reports the R-boosted figure separately, because the robust number should
+decide whether to trade.
+
+Note R(1) < 1: a 1-point margin is *rarer* than its neighbours, so the margin-1
+vertical is attractive only on the spacing argument, not the key-number one.
+
+### What decides whether this beats the arbitrage
+
+**Margining, and it is unknown.** If the venue nets the two legs, capital is
+the 0.010 premium and the expected return is enormous. If it does not, capital
+is ~$1.01 a share and the expected return is ~5% - no better than the
+risk-free trade, for real risk. The live trial's collateral usage answers this,
+and it should be answered before a cent goes here.
+
+Second: a sign error in the settlement semantics costs the credit on the
+arbitrage, but here it means betting on entirely the wrong margins.
+
 ## 6. Rules
 
 * Anything new goes through the sealed holdout in `research/holdout.yaml`
