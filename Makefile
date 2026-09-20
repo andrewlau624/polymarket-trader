@@ -50,13 +50,16 @@ GAME      ?=       # e.g. asc-cfb-clmsn-cah-2026-09-25 for `make ladder`
 NEAR      ?= 12    # strikes nearest a pick'em to scan (violations cluster there)
 GAMES     ?= 25    # ladders to sweep per cycle
 CYCLE     ?= 20    # minutes between full sweeps in `make ladder-dry`
+TRIAL_CAP ?= 2     # $ for the first live trial
+TRIAL_DAYS ?= 1    # only games settling within N days, so it resolves fast
+MIN_CREDIT ?= 0.01
 EDGE_LOG  ?= research/us_edge_log.jsonl
 
 # makes API keys from ENVFILE available to any recipe line
 LOAD = set -a; . $(ENVFILE) 2>/dev/null || true; set +a;
 
 .DEFAULT_GOAL := help
-.PHONY: help setup pull check hunt account cancel flatten flatten-live calibrate tape watch lag scores keynumbers ladder ladder-test ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: help setup pull check hunt account cancel flatten flatten-live calibrate tape watch lag scores keynumbers ladder ladder-test ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -98,6 +101,7 @@ help:
 	@echo "  make ladder-dry      scan the slate on a cycle, place nothing"
 	@echo "  make ladder-bg       same but detached - survives ^C and logout"
 	@echo "  make ladder-report   do the violations persist across sweeps?"
+	@echo "  make ladder-trial    FIRST LIVE RUN: $(TRIAL_CAP) dollars, one sweep, settles fast"
 	@echo "  make ladder-kill     stop the detached scanner"
 	@echo ""
 	@echo "  knobs: SIZE=$(SIZE) contracts/order  MARKETS=$(MARKETS)  MAX_INV=\$$$(MAX_INV)/market  BUY BAND=$(MIN_PX)-$(MAX_PX)"
@@ -201,6 +205,14 @@ ladder-report:
 	@$(PY) ladder_report.py
 	@echo ""
 	@tail -3 ladder_dry.out 2>/dev/null || true
+
+# First LIVE run: tiny cap, one sweep, games settling within a day so the
+# settlement semantics get confirmed tonight instead of next weekend.
+ladder-trial:
+	@echo "LIVE. cap \$$$(TRIAL_CAP), one sweep, games settling within $(TRIAL_DAYS) day(s)."
+	@echo "Watch for [PAIRED] vs [failed]. Then: make account"
+	$(LOAD) $(PY) ladder_bot.py --live --once --max-capital $(TRIAL_CAP) \
+	  --max-days $(TRIAL_DAYS) --near $(NEAR) --max-games $(GAMES) --min-credit $(MIN_CREDIT)
 
 # ---------- live ---------------------------------------------------------
 

@@ -146,6 +146,29 @@ def past_hits(path=LOG):
     return hits
 
 
+def game_date(base):
+    """'2026-09-25' from a ladder base slug, or None."""
+    import re as _re
+    m = _re.search(r"(\d{4}-\d{2}-\d{2})$", base)
+    return m.group(1) if m else None
+
+
+def within_days(base, max_days, today=None):
+    """Is this game inside max_days of today? 0/None means no limit."""
+    if not max_days:
+        return True
+    from datetime import date, timedelta
+    d = game_date(base)
+    if not d:
+        return False
+    today = today or date.today()
+    try:
+        y, m, dd = (int(x) for x in d.split("-"))
+    except ValueError:
+        return False
+    return date(y, m, dd) <= today + timedelta(days=max_days)
+
+
 def rank_games(ladders, hits):
     """Productive ladders first, then near-dated ones, then the rest.
 
@@ -269,6 +292,11 @@ def main():
     ap.add_argument("--cycle-min", type=float, default=20.0,
                     help="minutes between full sweeps of the slate")
     ap.add_argument("--max-games", type=int, default=25)
+    ap.add_argument("--max-days", type=int, default=0,
+                    help="only ladders whose game settles within N days (0 = all). "
+                         "Use --max-days 1 for a first live trial: the pair settles "
+                         "tonight instead of next weekend, so the settlement "
+                         "semantics get confirmed in hours rather than a week.")
     ap.add_argument("--cost", type=float, default=0.02, help="assumed unwind cost")
     ap.add_argument("--once", action="store_true")
     args = ap.parse_args()
@@ -332,6 +360,10 @@ def main():
                   + ", ".join(f"{k}({v})" for k, v in sorted(sports.items(),
                                                              key=lambda kv: -kv[1])))
             hits = past_hits()
+            if args.max_days:
+                ladders = {b: k for b, k in ladders.items()
+                           if within_days(b, args.max_days)}
+                print(f"  {len(ladders)} ladders settle within {args.max_days}d")
             games = rank_games(ladders, hits)[: args.max_games]
             if hits:
                 top = [g for g, _k in games[:3]]
