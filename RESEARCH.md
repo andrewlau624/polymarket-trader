@@ -1013,7 +1013,87 @@ Two throughput wins came out of that switch:
   the interval down 3%, a 429 backs it off 80% - and converges to 5.8 req/s
   against a simulated 8 req/s ceiling, 3.5x the fixed pause.
 
-## 23. FEES MAY KILL THE WHOLE STRATEGY
+## 23. FEES: the schedule, and why execution mode decides everything
+
+**Settled from the venue's own documentation** (`docs.polymarket.us/fees`,
+effective exchange-wide 2026-09-17 — three days ago):
+
+```
+Fee = theta * C * p * (1 - p)
+
+  taker  theta = +0.0695     charged, debits at trade time
+  maker  theta = -0.0125     REBATE, credits at fill time
+```
+
+`src/pm_us/fees.py` reproduces all five of the docs' worked examples exactly.
+
+### The bot was configured to do the losing thing
+
+A monotonicity pair is two legs. At a typical leg price of 0.58:
+
+```
+TAKE both   2 * 0.0695 * 0.58 * 0.42  =  0.0341/share OUT
+REST both   2 * 0.0125 * 0.58 * 0.42  =  0.0061/share IN
+```
+
+A **0.040 swing** — larger than the largest violation ever observed on this
+venue. `ladder_bot` crossed both legs with `maker=False`, which made almost
+every violation we found negative:
+
+```
+credit 0.040 -> as TAKES +0.0059   as MAKES +0.0461
+credit 0.030 -> as TAKES -0.0041   as MAKES +0.0361
+credit 0.025 -> as TAKES -0.0091   as MAKES +0.0311
+```
+
+Only 2 of 15 observed violations survive as takes. All 15 survive as rests.
+
+### Resting also captures MORE than the violation
+
+Taking captures `bid(L1) - ask(L2)`. Resting inside both books captures
+`ask(L1) - bid(L2)` minus two ticks — the original credit **plus both
+spreads**. On a real quote set:
+
+```
+TAKE  sell 0.605 buy 0.570 = +0.035   fees -0.0336   NET +0.0014
+REST  sell 0.609 buy 0.566 = +0.043   rebate +0.0060  NET +0.0490
+```
+
+**35x on the same violation.**
+
+### Why resting is safe here and killed polymm
+
+polymm rested quotes priced off a bookmaker model that went stale in seconds,
+and got picked off. Two differences:
+
+* **The edge is slow.** Violations stood in 12 of 15 observations across ten
+  sweeps over hours. There is time to be filled.
+* **A resting PAIR is hedged by construction.** Both legs sit on the same game,
+  so a move in the level moves both. Only relative moves can hurt it — which is
+  exactly the exposure polymm's single-sided quotes had and this does not.
+
+Cron makes the waiting free: place now, reconcile on the next run.
+`reconcile()` handles all four outcomes — both filled (bank it), one filled
+(wait, then unwind once stale, because an unhedged leg is the directional bet
+this strategy exists to avoid), neither (cancel when stale, release capital),
+and vanished.
+
+### Economics, before and after
+
+```
+TAKE both, 60% fill  ->  NEGATIVE AFTER FEES, $0/yr
+REST both, 35% fill  ->  +$0.042/share, $87/yr at $100 capital, $0 hosting
+```
+
+### Still open
+
+Whether a maker order actually rests rather than being silently converted, and
+what the real fill rate is. Thursday's settlement of the existing $2 pair —
+placed as a TAKE, before this was known — remains the test of whether the taker
+fee is charged as documented. Expect it to realise **less** than the $0.05
+credit if so.
+
+## 23b. FEES MAY KILL THE WHOLE STRATEGY
 
 The single most important finding of the research phase.
 

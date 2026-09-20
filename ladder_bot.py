@@ -286,39 +286,182 @@ def capital_per_share(sell_px, buy_px):
     return max(buy_px + (1.0 - sell_px), 0.01)
 
 
-def execute_pair(c, ks, credit, l1, l2, size, state, args):
-    """Sell the harder leg, buy the easier one. Both or neither."""
-    s1, s2 = ks[l1], ks[l2]
-    # take the thinner leg first: it is the one that disappears
-    log({"kind": "attempt", "sell": s1, "buy": s2, "credit": credit, "size": size})
+def reconcile(c, state, args):
+    """Settle up with the resting pairs from previous runs.
+
+    Maker-first execution means orders sit across cron runs, so every run must
+    first ask what happened to the last one. Four outcomes:
+
+      both filled   -> the pair is on, credit banked, done
+      one filled    -> a NAKED LEG. Wait while the other order still rests,
+                       but unwind once it is stale - an unhedged leg is a
+                       directional bet and this whole strategy exists not to
+                       hold those.
+      neither       -> still working; cancel if stale so capital is released
+      vanished      -> treat as cancelled by the venue, release and re-scan
+    """
+    pending = state.get("pending") or []
+    if not pending:
+        return
     try:
-        o1 = c.place(s1, "sell", args.sell_px, size, maker=False)
+        live = {str(o.get("orderId") or o.get("id")) for o in (c.open_orders() or [])}
     except Exception as e:
-        log({"kind": "leg1_failed", "slug": s1, "error": f"{type(e).__name__}: {str(e)[:120]}"})
-        return 0.0
+        print(f"  reconcile skipped: cannot read open orders ({type(e).__name__})")
+        return
     try:
-        c.place(s2, "buy", args.buy_px, size, maker=False)
-    except Exception as e:
-        # unwind leg 1 at once; the loss is a real cost of the strategy
-        log({"kind": "leg2_failed", "slug": s2,
-             "error": f"{type(e).__name__}: {str(e)[:120]}", "unwinding": s1})
+        pos = c.positions() or {}
+    except Exception:
+        pos = {}
+
+    from datetime import datetime, timezone
+    still = []
+    for p in pending:
+        ids = p.get("orders") or {}
+        sell_open = str(ids.get(p["sell"])) in live
+        buy_open = str(ids.get(p["buy"])) in live
+        age_h = 0.0
         try:
-            c.place(s1, "buy", args.unwind_px, size, maker=False)
-            log({"kind": "unwound", "slug": s1})
-        except Exception as e2:
-            log({"kind": "UNWIND_FAILED", "slug": s1,
-                 "error": f"{type(e2).__name__}: {str(e2)[:120]}"})
-            print(f"  !! NAKED LEG on {s1} - unwind failed. Fix by hand.")
-        state["unwind_cost"] += args.cost * size
+            t0 = datetime.fromisoformat(p["ts"])
+            age_h = (datetime.now(timezone.utc) - t0).total_seconds() / 3600.0
+        except Exception:
+            pass
+
+        if not sell_open and not buy_open:
+            locked = p["credit"] * p["size"]
+            state["realized"] += locked
+            state.setdefault("pairs", []).append({**p, "closed": now()})
+            log({"kind": "paired", "sell": p["sell"], "buy": p["buy"],
+                 "credit": p["credit"], "size": p["size"], "locked": locked})
+            print(f"  FILLED both legs: {p['sell'][:30]} / {p['buy'][:30]} "
+                  f"+${locked:.2f}")
+            continue
+
+        if sell_open != buy_open:
+            filled = p["buy"] if buy_open else p["sell"]
+            resting = p["sell"] if buy_open else p["buy"]
+            if age_h < args.stale_hours:
+                print(f"  one leg filled ({filled[:34]}), other still resting "
+                      f"[{age_h:.1f}h]")
+                still.append(p)
+                continue
+            # stale and half-filled: cancel the straggler, unwind the position
+            print(f"  !! stale half-fill after {age_h:.1f}h - unwinding "
+                  f"{filled[:34]}")
+            oid = ids.get(resting)
+            if oid:
+                try:
+                    c.cancel(oid, resting)
+                except Exception:
+                    pass
+            net = _position_net(pos, filled)
+            if net:
+                side = "sell" if net > 0 else "buy"
+                try:
+                    b, a, _s = c.book_levels(filled)
+                    px = (b[0][0] if side == "sell" and b else
+                          (a[0][0] if a else None))
+                    if px:
+                        c.place(filled, side, px, int(abs(net)), maker=False)
+                        log({"kind": "unwound", "slug": filled, "qty": abs(net)})
+                except Exception as e:
+                    log({"kind": "UNWIND_FAILED", "slug": filled,
+                         "error": f"{type(e).__name__}: {str(e)[:110]}"})
+                    print(f"     unwind FAILED on {filled} - fix by hand")
+            state["unwind_cost"] += args.cost * p["size"]
+            state["deployed"] = max(state["deployed"] - p["size"], 0.0)
+            continue
+
+        if age_h >= args.stale_hours:
+            for slug, oid in ids.items():
+                try:
+                    c.cancel(oid, slug)
+                except Exception:
+                    pass
+            state["deployed"] = max(state["deployed"] - p["size"], 0.0)
+            log({"kind": "expired", "sell": p["sell"], "buy": p["buy"],
+                 "hours": round(age_h, 1)})
+            print(f"  cancelled unfilled pair after {age_h:.1f}h")
+            continue
+        still.append(p)
+
+    state["pending"] = still
+    if still:
+        print(f"  {len(still)} pair(s) still resting")
+
+
+def _position_net(pos, slug):
+    v = pos.get(slug)
+    if not isinstance(v, dict):
         return 0.0
-    locked = credit * size
-    state["realized"] += locked
-    state["deployed"] += capital_per_share(args.sell_px, args.buy_px) * size
-    state["pairs"].append({"ts": now(), "sell": s1, "buy": s2,
-                           "credit": credit, "size": size})
-    log({"kind": "paired", "sell": s1, "buy": s2, "credit": credit,
-         "size": size, "locked": locked})
-    return locked
+    try:
+        return float(v.get("netPosition") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def execute_pair(c, ks, credit, l1, l2, size, state, args, quotes=None):
+    """Rest BOTH legs as maker. Taking them is a losing trade after fees.
+
+    The venue charges takers 0.0695*p*(1-p) and PAYS makers 0.0125*p*(1-p)
+    (docs.polymarket.us/fees, effective 2026-09-17). On a two-leg pair at
+    typical prices that is 0.0341 a share out versus 0.0061 a share in - a
+    0.040 swing, larger than the biggest violation ever observed here. Taking
+    both legs made most of our violations NEGATIVE.
+
+    Resting works because the edge is slow: violations stood in 12 of 15
+    observations across ten sweeps over hours, so there is time to be filled.
+    And resting a PAIR is hedged against level moves by construction - both
+    legs sit on the same game - so only relative moves can hurt it. That is
+    what polymm lacked when its single-sided quotes were picked off.
+
+    Cron makes the waiting free: place now, reconcile on the next run.
+    """
+    s1, s2 = ks[l1], ks[l2]
+    q1 = (quotes or {}).get(l1, {})
+    q2 = (quotes or {}).get(l2, {})
+    tick = args.tick
+
+    # Price INSIDE the spread so the order rests and has queue priority, but
+    # never crosses - a crossing "maker" order is rejected post-only, or worse,
+    # silently becomes a taker.
+    sell_px = args.sell_px
+    if q1.get("ask") is not None:
+        sell_px = max(round(q1["ask"] - tick, 3), (q1.get("bid") or 0) + tick)
+    buy_px = args.buy_px
+    if q2.get("bid") is not None:
+        buy_px = min(round(q2["bid"] + tick, 3),
+                     (q2.get("ask") or 1.0) - tick)
+    if sell_px <= buy_px:
+        return 0.0                      # no room to rest profitably
+
+    resting_credit = sell_px - buy_px
+    log({"kind": "attempt", "sell": s1, "buy": s2, "taker_credit": credit,
+         "resting_credit": resting_credit, "sell_px": sell_px,
+         "buy_px": buy_px, "size": size, "mode": "maker"})
+    ids = {}
+    for slug, side, px in ((s1, "sell", sell_px), (s2, "buy", buy_px)):
+        try:
+            o = c.place(slug, side, px, size, maker=True)
+            ids[slug] = _oid(o)
+        except Exception as e:
+            log({"kind": "rest_failed", "slug": slug, "side": side,
+                 "error": f"{type(e).__name__}: {str(e)[:120]}"})
+            # one leg resting alone is not a position - cancel it and move on
+            for done, oid in ids.items():
+                try:
+                    c.cancel(oid, done)
+                except Exception:
+                    pass
+            return 0.0
+
+    state.setdefault("pending", []).append({
+        "ts": now(), "sell": s1, "buy": s2, "sell_px": sell_px,
+        "buy_px": buy_px, "size": size, "credit": resting_credit,
+        "orders": ids, "game": ks.get("_base", "")})
+    state["deployed"] += capital_per_share(sell_px, buy_px) * size
+    log({"kind": "resting", "sell": s1, "buy": s2,
+         "credit": resting_credit, "size": size})
+    return resting_credit * size
 
 
 def main():
@@ -370,6 +513,14 @@ def main():
                          "tonight instead of next weekend, so the settlement "
                          "semantics get confirmed in hours rather than a week.")
     ap.add_argument("--cost", type=float, default=0.02, help="assumed unwind cost")
+    ap.add_argument("--tick", type=float, default=0.001,
+                    help="venue tick, for pricing inside the spread")
+    ap.add_argument("--take", action="store_true",
+                    help="cross both legs instead of resting. Pays 0.0695*p*(1-p) "
+                         "twice, which makes most observed violations negative. "
+                         "Only sensible for a credit above ~0.036.")
+    ap.add_argument("--stale-hours", type=float, default=12.0,
+                    help="cancel a resting pair that has not filled in this long")
     ap.add_argument("--once", action="store_true")
     args = ap.parse_args()
     args.sell_px = args.buy_px = args.unwind_px = None  # filled per-violation
@@ -463,6 +614,8 @@ def main():
                   f"({subs} sub-period, settle intra-game) | sports: "
                   + ", ".join(f"{k}({v})" for k, v in sorted(sports.items(),
                                                              key=lambda kv: -kv[1])))
+            reconcile(c, state, args)
+            save_state(state)
             hits = past_hits()
             if args.max_days:
                 allb = list(ladders)
@@ -532,7 +685,9 @@ def main():
                     args.sell_px = q[l1]["bid"]
                     args.buy_px = q[l2]["ask"]
                     args.unwind_px = q[l1]["ask"] or (q[l1]["bid"] + args.cost)
-                    got = execute_pair(c, ks, credit, l1, l2, size, state, args)
+                    ks_named = dict(ks); ks_named["_base"] = base
+                    got = execute_pair(c, ks_named, credit, l1, l2, size,
+                                       state, args, quotes=q)
                     print(line + ("   [PAIRED]" if got else "   [failed]"))
                     locked += got
                     save_state(state)

@@ -45,6 +45,12 @@ def main():
     ap.add_argument("--capital", type=float, default=100.0)
     ap.add_argument("--cycles-per-week", type=float, default=1.0,
                     help="1 = weekly CFB settlement. NBA ladders would be ~5.")
+    ap.add_argument("--maker", action="store_true",
+                    help="model RESTING both legs: captures the full spread on "
+                         "each and earns the 0.0125 rebate instead of paying "
+                         "the 0.0695 taker fee. Lower fill rate, far higher net.")
+    ap.add_argument("--spread", type=float, default=0.008,
+                    help="combined width captured by resting inside both books")
     ap.add_argument("--fee-rate", type=float, default=0.0,
                     help="fee curve coefficient: fee = rate*p*(1-p) per share "
                          "per leg. 0 assumes none (current belief); 0.07 is the "
@@ -57,8 +63,19 @@ def main():
                     help="fraction of found violations that actually fill both legs")
     args = ap.parse_args()
 
-    fee2 = 2.0 * fee_per_share(args.avg_price, args.fee_rate)
-    survive = max(args.avg_credit - fee2, 0.0) / max(args.avg_credit, 1e-9)
+    from src.pm_us.fees import pair_cost
+    if args.maker:
+        # resting inside the spread captures the full width on BOTH legs and
+        # earns the rebate rather than paying the taker fee
+        eff_credit = args.avg_credit + args.spread - 2 * 0.001
+        fee2 = pair_cost(args.avg_price, args.avg_price - args.avg_credit,
+                         1, True, True)
+    else:
+        eff_credit = args.avg_credit
+        fee2 = pair_cost(args.avg_price, args.avg_price - args.avg_credit,
+                         1, False, False)
+    net_per_share = eff_credit - fee2
+    survive = max(net_per_share, 0.0) / max(args.avg_credit, 1e-9)
     gross_cycle = per_cycle(args.capital) * args.fill_rate * survive
     weekly = gross_cycle * args.cycles_per_week
     yearly = weekly * 52
@@ -66,14 +83,14 @@ def main():
 
     print(f"capital ${args.capital:.0f} | {args.cycles_per_week:g} cycles/week | "
           f"fill rate {args.fill_rate:.0%} | hosting ${args.hosting:.0f}/mo")
-    if args.fee_rate:
-        print(f"fees {args.fee_rate}*p*(1-p) x2 legs = {fee2:.4f}/share "
-              f"against a {args.avg_credit:.3f} credit -> "
-              f"{survive:.0%} of the edge survives")
-        if survive <= 0:
-            print("  FEES EXCEED THE CREDIT. The trade is negative at these prices.")
-    else:
-        print("fees: assumed ZERO (run_fees.py to verify - see RESEARCH.md S23)")
+    mode = "REST both legs (maker)" if args.maker else "TAKE both legs"
+    print(f"execution: {mode}")
+    print(f"  credit {args.avg_credit:.3f}" +
+          (f" + spread {args.spread:.3f} captured = {eff_credit:.3f}"
+           if args.maker else "") +
+          f"   fees {fee2:+.4f}   NET {net_per_share:+.4f}/share")
+    if net_per_share <= 0:
+        print("  NEGATIVE AFTER FEES at these prices.")
     print()
     print(f"  per cycle      ${gross_cycle:>8.2f}")
     print(f"  per week       ${weekly:>8.2f}")
