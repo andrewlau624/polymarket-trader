@@ -42,7 +42,8 @@ fi
 # because that is all --near 12 ever looked at.
 timeout 1800 "$PY" ladder_bot.py --live --once \
   --max-capital "${CAP:-5}" --near "${NEAR:-24}" --max-games "${GAMES:-25}" \
-  --min-credit "${MIN_CREDIT:-0.002}" --hurdle "${HURDLE:-0.004}" >> "$LOG" 2>&1
+  --min-credit "${MIN_CREDIT:-0.002}" --hurdle "${HURDLE:-0.004}" \
+  ${VERTICALS:+--verticals} --min-ev "${MIN_EV:-0.02}" >> "$LOG" 2>&1
 say "ladder sweep rc=$?"
 
 # 2. record prices for the forward calibration study (free, builds the NBA case)
