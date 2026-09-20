@@ -32,7 +32,9 @@ answers it by how much buying power a pair consumes.
     make find       hunt for mispricings in the background. Places nothing.
     make found      what the hunt found, and whether it persists
     make trade      place ONE bounded live trade ($2, 3 ladders, ~30s)
-    make out        cancel orders + exit positions. DRY RUN.
+    make out        cancel orders + exit DIRECTIONAL positions. DRY RUN.
+                    Paired ladder legs are left alone: they are
+                    self-liquidating, and closing one leaves the other naked.
     make out-live   same, for real
     make quiet      stop every bot AND disable it (survives reboot)
     make rules VSLUG=<slug>   what a market actually settles on

@@ -540,8 +540,23 @@ class UsMarketMaker:
         except Exception as e:
             print(f"positions failed: {type(e).__name__} {e}")
             return
-        longs = {k: v for k, v in positions.items() if _position_row(v)[0] >= 1}
-        shorts = {k: v for k, v in positions.items() if _position_row(v)[0] <= -1}
+        # Ladder legs are PAIRED and self-liquidating: the credit is already
+        # banked and settlement cancels the two sides. Unwinding one here pays
+        # the spread twice to hand back that credit, and closing only one side
+        # leaves the other naked. flatten is for DIRECTIONAL inventory.
+        keep = {k for k in positions if is_ladder(k)}
+        if keep and not self.args.include_ladders:
+            print(f"leaving {len(keep)} paired ladder leg(s) alone "
+                  f"(self-liquidating; --include-ladders to override):")
+            for k in sorted(keep):
+                net = _position_row(positions[k])[0]
+                print(f"  {net:>+5.0f}  {k}")
+        elif keep:
+            print(f"--include-ladders: will unwind {len(keep)} ladder leg(s) too")
+            keep = set()
+        pos_use = {k: v for k, v in positions.items() if k not in keep}
+        longs = {k: v for k, v in pos_use.items() if _position_row(v)[0] >= 1}
+        shorts = {k: v for k, v in pos_use.items() if _position_row(v)[0] <= -1}
         if not longs and not shorts:
             print("no positions to flatten")
             return
@@ -895,6 +910,12 @@ class UsMarketMaker:
             n = len(self.client.open_orders())
         except Exception:
             n = "?"
+        # cancel_all is indiscriminate. Positions are unaffected, but a reboot
+        # that restarts the live service cancelled a user's flatten sells this
+        # way, so say what is being pulled.
+        if n not in ("?", 0):
+            print(f"cancelling {n} order(s) - this includes any resting sells "
+                  f"posted by `make out`")
         try:
             self.client.cancel_all()
             self.orders = {}
@@ -1100,6 +1121,10 @@ def main():
                     help="stop bidding a market once its cost basis reaches $N "
                          "(0 = no cap). Keeps cash from turning into a pile of "
                          "one-sided directional bets.")
+    ap.add_argument("--include-ladders", action="store_true",
+                    help="also unwind paired ladder legs. They are self-"
+                         "liquidating, so this normally just pays the spread "
+                         "twice to give back the credit.")
     ap.add_argument("--cross", action="store_true",
                     help="exit NOW at the bid instead of resting at the ask, for "
                          "positions whose spread is tight. Frees the capital today.")
