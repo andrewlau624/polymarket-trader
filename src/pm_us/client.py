@@ -120,6 +120,21 @@ class UsClient:
         return self._retry(
             lambda: self.c.get("/v1/incentives/earnings", query=params or None, authenticated=True))
 
+    def program_sample(self, program_type="liquidityProgram"):
+        """One raw program + timePeriod, for discovering fields we do not read.
+
+        The bot reads rewardPool/discountFactor/targetSize and nothing else. If
+        the venue also publishes a minimum size or a max spread to qualify, we
+        are blind to it - and every reward so far came back SKIPPED.
+        """
+        resp = self.incentives(statuses=["active"], program_type=program_type)
+        progs = resp.get("programs", []) if isinstance(resp, dict) else []
+        if not progs:
+            return None, None
+        p = progs[0]
+        tps = p.get("timePeriods") or []
+        return p, (tps[0] if tps else None)
+
     def all_programs(self, program_type="liquidityProgram", max_pages=12):
         """Every active liquidity program period, paginated."""
         rows, token = [], None

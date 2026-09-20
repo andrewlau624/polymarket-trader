@@ -351,9 +351,16 @@ class UsMarketMaker:
         raw_a = sum(q for _, q in asks)
         target = prog["target"]
         meets = raw_b >= target and raw_a >= target
+        # A book whose size sits far from the touch scores ~0 after the discount
+        # factor, so a 20-lot at the touch appears to take ~100% of the pool.
+        # That is an artifact of quoting a period that has not started yet, not
+        # an opportunity: the makers arrive when the game does.
+        comp_total = cb + ca
+        speculative = comp_total < max(target * 0.01, 1.0)
         return {"best_bid": best_bid, "best_ask": best_ask, "bids": bids, "asks": asks,
                 "share": share, "est_period": share * prog["pool"], "est_daily": run_rate,
                 "raw_bid": raw_b, "raw_ask": raw_a, "meets_target": meets,
+                "comp_score": comp_total, "speculative": speculative,
                 "quotable": bool(bids and asks) and in_band}
 
     def account(self):
@@ -532,6 +539,18 @@ class UsMarketMaker:
         print(f"fetched {len(allp)} active program periods")
         print("period labels seen:   " + ", ".join(f"{k}({v})" for k, v in cnt.most_common()))
         print("category labels seen: " + cat_labels(allp))
+        try:
+            prog, tp = self.client.program_sample()
+            if prog is not None:
+                skip = {"timePeriods"}
+                print("\n  program fields:     "
+                      + json.dumps({k: v for k, v in prog.items() if k not in skip})[:320])
+            if tp is not None:
+                print("  timePeriod fields:  " + json.dumps(tp)[:320])
+            print("  ^ anything here about MINIMUM SIZE or MAX SPREAD is a "
+                  "qualification rule the bot does not yet read.")
+        except Exception as e:
+            print(f"  (program field dump failed: {type(e).__name__} {e})")
 
         cand = list(allp)
         if self.args.period and self.args.period != "any":
@@ -552,14 +571,22 @@ class UsMarketMaker:
         rows.sort(key=lambda r: r["est_daily"], reverse=True)
 
         print(f"\nquotable markets: {len(rows)}")
-        print(f"{'est$/day':>10}{'pool':>8}{'target':>9}{'share':>8}{'tgt?':>6}  period  market")
-        met = 0
+        print(f"{'est$/day':>10}{'pool':>8}{'target':>9}{'share':>8}{'tgt?':>6}"
+              f"{'real?':>7}  period  market")
+        met = spec = 0
         for r in rows[:25]:
             ok = "OK" if r.get("meets_target") else "thin"
             met += 1 if r.get("meets_target") else 0
+            sp = "GHOST" if r.get("speculative") else "-"
+            spec += 1 if r.get("speculative") else 0
             print(f"{r['est_daily']:>10,.2f}{r['pool']:>8,.0f}{r['target']:>9.0f}"
-                  f"{r['share']:>8.3f}{ok:>6}  {r['period']:<7} {r['slug'][:36]}")
+                  f"{r['share']:>8.3f}{ok:>6}{sp:>7}  {r['period']:<7} {r['slug'][:36]}")
         print(f"\n  {met}/{len(rows)} meet Target Size (those are the only ones that can pay)")
+        if spec:
+            print(f"  {spec}/{len(rows)} are GHOST: scoring competition is ~0 because the")
+            print(f"  book is empty NEAR THE TOUCH, usually a period that has not started.")
+            print(f"  Their est$/day assumes you keep ~100% of the pool. You will not -")
+            print(f"  the makers arrive when the event does. Do not size on those rows.")
         if not cand:
             print(f"  the FILTER matched nothing - no program has category "
                   f"~'{self.args.category}' / period '{self.args.period}'.")
