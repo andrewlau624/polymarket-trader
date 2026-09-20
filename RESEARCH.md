@@ -553,6 +553,47 @@ Before funding anything: the account is promotional credit with
 `availableToWithdraw: 0` (section 5a). A 4%-to-settlement return on locked
 bonus credit is not the same thing as a 4% return.
 
+## 14. Next experiments, ranked
+
+The monotonicity trade works because this venue prices related markets in
+separate books and does not reconcile them. That is a property of the venue,
+not of spread ladders, so the question is where else it applies.
+
+**1. Moneyline vs the ladder's zero crossing.** `neg-0pt5` means the team
+gives half a point, so it pays exactly when the team wins outright - which is
+what `aec-<game>` pays on. Two independent books, identical settlement, must
+agree. This needs no ladder structure, just two markets that settle the same,
+and it roughly doubles the surface area. The graveyard's "spread implies
+moneyline" proposals were tested on the GLOBAL venue, never this one.
+`make crossmarket`.
+
+**2. Other ladder types.** The same machinery works on any monotone strike
+set. Candidates: over/under totals, UFC "fight passes round N", and the
+half/quarter ladders already visible in the slug list (`-2h`, `-4q`). Those
+sub-period books are thinner than full-game, so they should be *more*
+inconsistent, and UFC is where the only rewards ever landed. `make families`
+inventories what exists before any of it is built.
+
+**3. Listing-time dislocation.** Violations concentrate on particular ladders
+and the richest credit seen (+0.060) was on a same-day game. A newly listed
+ladder is presumably seeded by a model and only corrected once flow arrives,
+so watching for *new* ladders and scanning them immediately should beat
+sweeping old ones. This is an optimisation of an edge already proven rather
+than a new edge.
+
+**4. The 1-point band.** On `clmsn-cah`, P(margin > 1.5) = 0.597 and
+P(margin > -1.5) = 0.607, so the market prices the entire -1.5 to +1.5 band at
+**1%**. Margin 0 is impossible in CFB (overtime), but a 1-point margin happens
+~3.3% of the time. Same key-number error as section 9, in a band narrow enough
+to trade with two adjacent strikes. Blocked by the same thing: an inconsistent
+ladder cannot be read as a distribution, so this only becomes measurable once
+the monotonicity violations on that ladder are gone - possibly because we took
+them.
+
+Deliberately not pursued: anything needing the ladder to be a valid
+distribution (blocked), anything needing a low-latency feed (dead, section 4),
+and anything needing size (the account is the constraint, section 12).
+
 ## 6. Rules
 
 * Anything new goes through the sealed holdout in `research/holdout.yaml`
