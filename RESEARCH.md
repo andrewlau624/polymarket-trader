@@ -740,6 +740,52 @@ full-game (so more inconsistent), and `make families` counts them. They are
 also small - a 4q ladder had 6 strikes - so expect fewer violations per ladder
 and rely on breadth across the slate.
 
+## 17. The full market inventory, and what it rules out
+
+From `make crossmarket-report`, 1,200 markets:
+
+```
+asc-cfb-ladder        945      sub-period ladders:
+aec-cfb-outright      197        1h 18   1q 18   2h 18
+aec-nfl-outright       46        2q 18   3q 16   4q 12
+cpoc-ussec-outright    12
+```
+
+**Ladders exist only for CFB.** NFL has 46 outright markets and zero ladders.
+That matters because the cross-market check needs BOTH a ladder and an outright
+for the same game - so cross-market is **also CFB-only**, and the hope that it
+could run on a daily sport is dead. `cpoc-ussec` is 12 outrights with no
+ladder, so nothing to pair against either.
+
+**Daily compounding is not available on this venue for any strategy here.**
+Everything with exploitable structure is college football, which plays Thursday
+to Saturday. That is a property of what the venue lists, not of the edge.
+
+### Cross-market is mostly efficient, and the one gap may not be independent
+
+24 of 25 games priced their outright and their ladder's zero crossing within
+the round trip. Only `clmsn-cah` disagreed: **0.030 with 197 shares, about
+$5.91** - bigger than every monotonicity violation combined, because an
+outright is the venue's most liquid book.
+
+But `clmsn-cah` is the same ladder carrying 12 of 15 monotonicity violations.
+The likely reading is that its **ladder is broken and the moneyline is
+correct**, so this is not a second independent edge - it is another view of the
+same defect. The trade is still valid (two markets settling identically, priced
+apart, so the gap locks in), but **do not add $5.91 to the ladder's $4.62 as if
+they were separate pools**: they draw on the same mispriced strikes and the same
+capital.
+
+### What is actually left worth building
+
+**Sub-period ladders: 100 strikes across 1h/1q/2h/2q/3q/4q.** They settle at
+the end of a quarter or half rather than the game, so on a single Saturday
+capital can turn over several times - which is the closest thing to the stated
+objective that this venue supports. `parse_strike` already handles them
+(`...-2026-09-19-2h-neg-13pt5`) and `days_to_settle` scores them at 0.12 days,
+so the bot covers them already. They have never been scanned during a live game
+because every session so far has been on a non-game day.
+
 ## 6. Rules
 
 * Anything new goes through the sealed holdout in `research/holdout.yaml`
