@@ -350,7 +350,16 @@ class UsMarketMaker:
                 reserved = _amt(b.get("balanceReservation"))
                 print(f"  cash {_money(cash)}   buying power {_money(bp)}   "
                       f"reserved {_money(reserved)}")
-                if cash is not None and reserved is not None:
+                # Observed with zero open orders: cash, buyingPower and
+                # balanceReservation all come back as the SAME number, so the
+                # breakdown carries no information and 'free = cash - reserved'
+                # would read $0.00 on an account that is entirely free.
+                three = [v for v in (cash, bp, reserved) if v is not None]
+                if len(three) == 3 and max(three) - min(three) <= 0.01:
+                    print(f"  (the venue reports all three as the same figure - read "
+                          f"it as {_money(cash)} cash; the split is not populated)")
+                    reserved = None          # do not compare order collateral to it
+                elif cash is not None and reserved is not None:
                     free = cash - reserved
                     print(f"  free (cash - reserved) {_money(free)}")
                     if bp is not None and abs(bp - free) > 0.01:
