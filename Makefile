@@ -48,7 +48,7 @@ TAPE_EVENTS ?= 300
 LEAGUE    ?= cfb   # cfb | nfl, for `make keynumbers` and `make ladder`
 GAME      ?=       # e.g. asc-cfb-clmsn-cah-2026-09-25 for `make ladder`
 # strikes nearest a pick'em to scan (violations cluster there)
-NEAR      ?= 12
+NEAR      ?= 24
 # ladders to sweep per cycle
 GAMES     ?= 25
 # minutes between full sweeps

@@ -74,6 +74,9 @@ def main():
 
     print("\n  Cutting hosting is CERTAIN. More cycles is not - it depends on the")
     print("  venue listing NBA ladders, which has not happened yet.")
+    print("\n  NOTE: the curve above was measured scanning 12 strikes per game.")
+    print("  Cron scans 24 on 25 games for 77% fewer API calls, so the real")
+    print("  number may be higher - the ladder wings have never been looked at.")
 
 
 if __name__ == "__main__":

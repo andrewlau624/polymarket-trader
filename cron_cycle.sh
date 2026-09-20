@@ -34,8 +34,14 @@ if [ -f research/ladder_bot.lock ]; then
 fi
 
 # 1. the proven trade: monotonicity pairs, one sweep
-timeout 900 "$PY" ladder_bot.py --live --once \
-  --max-capital "${CAP:-5}" --near "${NEAR:-12}" --max-games "${GAMES:-12}" \
+# DEPTH over frequency. The daemon spent its API budget scanning 12 strikes
+# on 12 games seventy-two times a day; the edge persisted 12 of 15 times across
+# ten sweeps over hours, so that frequency bought nothing. Four cron runs at 24
+# strikes on 25 games use 77% fewer calls and cover 4.2x more of the board.
+# Every violation found so far sat within +-6 points of the money simply
+# because that is all --near 12 ever looked at.
+timeout 1800 "$PY" ladder_bot.py --live --once \
+  --max-capital "${CAP:-5}" --near "${NEAR:-24}" --max-games "${GAMES:-25}" \
   --min-credit "${MIN_CREDIT:-0.01}" >> "$LOG" 2>&1
 say "ladder sweep rc=$?"
 
