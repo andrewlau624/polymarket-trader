@@ -60,7 +60,7 @@ EDGE_LOG  ?= research/us_edge_log.jsonl
 LOAD = set -a; . $(ENVFILE) 2>/dev/null || true; set +a;
 
 .DEFAULT_GOAL := help
-.PHONY: help setup pull check hunt account cancel flatten flatten-live calibrate tape watch lag scores keynumbers ladder ladder-test ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket families keyvertical paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket families keyvertical paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -72,7 +72,8 @@ help:
 	@echo "  make account         your cash, open orders, positions, real rewards"
 	@echo "  make cancel          cancel ALL open orders (clean slate)"
 	@echo "  make flatten         DRY RUN: show the sells that would unwind inventory"
-	@echo "  make flatten-live    actually post those maker sells"
+	@echo "  make flatten-live    actually post those maker sells (rest at the ask)"
+	@echo "  make flatten-cross   DRY RUN: exit now at the bid, frees capital today"
 	@echo "  make hunt            scan EVERY program, list quotable markets"
 	@echo "                       e.g.  make hunt PERIOD=daily  |  make hunt MIN_POOL=0"
 	@echo ""
@@ -131,6 +132,15 @@ cancel:
 
 flatten:
 	$(LOAD) $(PY) mm_bot_us.py --flatten
+
+# exit NOW at the bid: pays the spread, frees the capital immediately
+flatten-cross:
+	$(LOAD) $(PY) mm_bot_us.py --flatten --cross
+	@echo ""
+	@echo "that was a DRY RUN. to execute:  make flatten-cross-live"
+
+flatten-cross-live:
+	$(LOAD) $(PY) mm_bot_us.py --flatten --cross --live
 
 flatten-live:
 	@echo "long positions: resting sells at the ask. short positions: crossing buy-backs."
