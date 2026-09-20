@@ -53,7 +53,7 @@ fi
 # Every violation found so far sat within +-6 points of the money simply
 # because that is all --near 12 ever looked at.
 timeout 1800 "$PY" ladder_bot.py --live --once \
-  --max-capital "${CAP:-5}" --near "${NEAR:-24}" --max-games "${GAMES:-25}" \
+  --max-capital "${CAP:-5}" --near "${NEAR:-24}" --max-games "${GAMES:-0}" --base-shares "${BASE_SHARES:-5}" \
   --min-credit "${MIN_CREDIT:-0.002}" --hurdle "${HURDLE:-0.004}" \
   ${VERTICALS:+--verticals} --min-ev "${MIN_EV:-0.02}" >> "$LOG" 2>&1
 say "ladder sweep rc=$?"

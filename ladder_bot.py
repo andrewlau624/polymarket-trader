@@ -497,7 +497,15 @@ def main():
     ap.add_argument("--pause", type=float, default=0.6, help="seconds between book calls")
     ap.add_argument("--cycle-min", type=float, default=20.0,
                     help="minutes between full sweeps of the slate")
-    ap.add_argument("--max-games", type=int, default=25)
+    ap.add_argument("--max-games", type=int, default=0,
+                    help="ladders per sweep; 0 = ALL. Breadth is the only thing "
+                         "that scales: taking the touch caps at ~20 shares a "
+                         "violation and fees make deeper levels negative, so "
+                         "return grows with the number of PLACES you rest, not "
+                         "the size in any one.")
+    ap.add_argument("--base-shares", type=int, default=5,
+                    help="size given to every qualifying candidate before any "
+                         "surplus goes to the best ones")
     ap.add_argument("--rank", default="turnover", choices=("turnover", "value"),
                     help="turnover = soonest settlement first, which maximises "
                          "return per day of locked capital. value = biggest "
@@ -631,7 +639,8 @@ def main():
                     print(f"  nearest settlement dates: {', '.join(nxt[:5])}")
                     print(f"  every ladder here is college football, which plays "
                           f"Thu-Sat - raise --max-days to reach them.")
-            games = rank_games(ladders, hits, args.rank)[: args.max_games]
+            ranked_all = rank_games(ladders, hits, args.rank)
+            games = ranked_all[: args.max_games] if args.max_games else ranked_all
             if hits:
                 top = [g for g, _k in games[:3]]
                 print(f"  prioritising: {', '.join(t[8:38] for t in top)}")
@@ -639,6 +648,7 @@ def main():
                   f"{args.hurdle * 0.12:.4f} on a quarter ladder, "
                   f"{args.hurdle * 7:.3f} on a game a week out")
             found = locked = 0.0
+            pool = []
             for base, ks in games:
                 want = sorted(sorted(ks, key=lambda k: abs(k))[: args.near])
                 q = quotes_for(c, ks, want, args.pause, main._throttle)
@@ -654,7 +664,6 @@ def main():
                 pmf = fair_from_ladder(q) if args.verticals else {}
                 cands = vscan(q, pmf, tick=args.tick, maker=not args.take,
                               min_ev=args.min_ev)
-                room = args.max_capital - state["deployed"]
                 days_to = days_to_settle(base)
                 need = max(args.hurdle * days_to, args.min_credit)
                 for r in cands:
@@ -674,16 +683,12 @@ def main():
                             continue
                     elif r["ev"] < max(args.min_ev, args.hurdle * days_to):
                         continue
-                    per_share = r["capital"]
-                    afford = int(max(room, 0) / per_share)
-                    size = int(min(sz, args.max_size, afford))
-                    if not r["risk_free"]:
-                        # a bet is sized by Kelly on its own edge, not by depth
-                        kelly_units = int(r["kelly"] * args.kelly_fraction
-                                          * max(args.max_capital, 0) / per_share)
-                        size = min(size, max(kelly_units, 0))
-                    if size < args.min_size:
-                        continue
+                    # COLLECT. Sizing happens once, across every game, so that
+                    # capital spreads by breadth instead of piling into whatever
+                    # the first game happened to offer.
+                    pool.append({**r, "base": base, "ks": ks, "q": q,
+                                 "days": days_to, "depth_cap": sz})
+                    continue
                     found += credit * size
                     d = days_to
                     per_day = (credit * size) / max(d, 0.01)
@@ -716,6 +721,42 @@ def main():
                     locked += got
                     save_state(state)
             mins = (time.time() - t0) / 60
+            # ONE allocation across everything found, breadth first
+            from src.pm_us.allocate import plan, summarise
+            free = max(args.max_capital - state["deployed"], 0.0)
+            sized = plan(pool, free, base_shares=args.base_shares,
+                         max_shares=args.max_size, min_shares=args.min_size)
+            if pool:
+                sm = summarise(sized, max(free, 1e-9))
+                print(f"  {len(pool)} candidates -> {sm['positions']} positions, "
+                      f"${sm['deployed']:.2f} of ${free:.2f} "
+                      f"({sm['utilisation']:.0%}), expected ${sm['expected']:.2f}")
+            for row in sized:
+                size = int(min(row["shares"], row["depth_cap"]
+                               if args.take else row["shares"]))
+                if size < args.min_size:
+                    continue
+                r, base, ks, q = row, row["base"], row["ks"], row["q"]
+                l1, l2 = r["l1"], r["l2"]
+                found += r["ev"] * size
+                tag = "ARB" if r["risk_free"] else "BET"
+                d = row["days"]
+                print(f"  {tag} {base[:28]:<28} {l1:+.1f}/{l2:+.1f} "
+                      f"entry {r['entry']:+.4f} EV {r['ev']:+.4f} x{size} "
+                      f"| {d:.2f}d")
+                if not args.live:
+                    log({"kind": "opportunity", "game": base, "sell": l1,
+                         "buy": l2, "entry": round(r["entry"], 4),
+                         "ev": round(r["ev"], 4), "size": size,
+                         "risk_free": r["risk_free"], "sweep": sweep})
+                    continue
+                args.sell_px, args.buy_px = q[l1]["bid"], q[l2]["ask"]
+                args.unwind_px = q[l1]["ask"] or (q[l1]["bid"] + args.cost)
+                ks_named = dict(ks); ks_named["_base"] = base
+                locked += execute_pair(c, ks_named, -r["entry"], l1, l2, size,
+                                       state, args, quotes=q)
+                save_state(state)
+
             print(f"  pacing: {main._throttle.stats()}")
             print(f"  sweep {sweep} done in {mins:.1f}min | "
                   f"opportunity ${found:.2f} | locked ${locked:.2f} | "

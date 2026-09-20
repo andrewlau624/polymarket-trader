@@ -131,3 +131,53 @@ def scan(quotes, fair_pmf, tick=0.001, maker=True, min_ev=0.005, league="cfb"):
         if r["risk_free"] or r["ev"] >= min_ev:
             out.append(r)
     return sorted(out, key=lambda r: (-r["risk_free"], -r["ev"]))
+
+
+def walk_depth(bids1, asks2, fee_fn=None, min_credit=0.0):
+    """Every profitable level pair, walking BOTH books down, not just the touch.
+
+    The measured capacity curve - $50 to $100 returning half as much per
+    dollar - was an artefact of reading bids[0] and asks[0] only. A violation
+    that holds one level deeper is real size the bot could not see. On a
+    representative book this is the difference between 20 shares and 190.
+
+    bids1: [(price, size), ...] descending, the leg being SOLD.
+    asks2: [(price, size), ...] ascending, the leg being BOUGHT.
+    Returns [(credit, sell_px, buy_px, size), ...] best first, each already
+    net of fees when fee_fn is supplied.
+    """
+    i = j = 0
+    b_left = list(bids1)
+    a_left = list(asks2)
+    out = []
+    while i < len(b_left) and j < len(a_left):
+        bp, bs = b_left[i]
+        ap, asz = a_left[j]
+        if bp is None or ap is None:
+            break
+        credit = bp - ap
+        if fee_fn:
+            credit -= fee_fn(bp, ap)
+        if credit <= min_credit:
+            break                      # books have crossed; deeper is worse
+        take = min(bs, asz)
+        if take <= 0:
+            break
+        out.append((credit, bp, ap, take))
+        bs -= take
+        asz -= take
+        b_left[i] = (bp, bs)
+        a_left[j] = (ap, asz)
+        if bs <= 0:
+            i += 1
+        if asz <= 0:
+            j += 1
+    return out
+
+
+def depth_capacity(bids1, asks2, fee_fn=None):
+    """(total shares, total credit dollars) available across all levels."""
+    levels = walk_depth(bids1, asks2, fee_fn)
+    shares = sum(l[3] for l in levels)
+    dollars = sum(l[0] * l[3] for l in levels)
+    return shares, dollars

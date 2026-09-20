@@ -39,12 +39,38 @@ def per_cycle(capital):
     return CURVE[-1][1]
 
 
+def per_cycle_maker(capital, ladders=50, verticals=4, ev=0.05, base=5,
+                    per_share=0.98):
+    """Resting has NO depth limit, so capacity is breadth x size, not the book.
+
+    The measured CURVE flattens past $50 because TAKING the touch caps at ~20
+    shares a violation and fees make every deeper level negative. That
+    flattening is a property of taking, not of the edge. A maker is adding
+    liquidity rather than consuming it, so what binds is how many PLACES you
+    rest - and that is the number of ladders scanned.
+
+    Linear in capital until every slot is funded at the base size, then the
+    surplus deepens the best positions at a discounted rate.
+    """
+    slots = max(ladders * verticals, 1)
+    fundable = capital / per_share
+    shares = min(fundable, slots * base)
+    surplus = max(fundable - slots * base, 0.0)
+    return shares * ev + surplus * ev * 0.5
+
+
 def main():
     ap = argparse.ArgumentParser(description="Is this worth running?")
     ap.add_argument("--hosting", type=float, default=18.0, help="$/month")
     ap.add_argument("--capital", type=float, default=100.0)
     ap.add_argument("--cycles-per-week", type=float, default=1.0,
                     help="1 = weekly CFB settlement. NBA ladders would be ~5.")
+    ap.add_argument("--ladders", type=int, default=50,
+                    help="ladders scanned per sweep. Breadth is the scaling "
+                         "lever; --max-games 0 scans all of them.")
+    ap.add_argument("--verticals-per-ladder", dest="verticals", type=int,
+                    default=4, help="tradeable verticals per ladder (5 were "
+                                    "found on the one real ladder examined)")
     ap.add_argument("--maker", action="store_true",
                     help="model RESTING both legs: captures the full spread on "
                          "each and earns the 0.0125 rebate instead of paying "
@@ -76,7 +102,10 @@ def main():
                          1, False, False)
     net_per_share = eff_credit - fee2
     survive = max(net_per_share, 0.0) / max(args.avg_credit, 1e-9)
-    gross_cycle = per_cycle(args.capital) * args.fill_rate * survive
+    base_cycle = (per_cycle_maker(args.capital, args.ladders, args.verticals,
+                                  max(net_per_share, 0.0))
+                  if args.maker else per_cycle(args.capital) * survive)
+    gross_cycle = base_cycle * args.fill_rate
     weekly = gross_cycle * args.cycles_per_week
     yearly = weekly * 52
     cost = args.hosting * 12
@@ -120,6 +149,11 @@ def main():
         y = per_cycle(args.capital) * args.fill_rate * cyc * 52
         print(f"    {label:<24} -> ${y:>7.2f}/yr gross")
 
+    if args.maker:
+        print("\n  MODELLED, NOT MEASURED: the maker fill rate is a guess. Everything")
+        print("  above scales off it linearly, so treat these figures as a shape")
+        print("  (linear then saturating) rather than as a forecast. The first")
+        print("  cron runs measure the real rate.")
     print("\n  Cutting hosting is CERTAIN. More cycles is not - it depends on the")
     print("  venue listing NBA ladders, which has not happened yet.")
     print("\n  NOTE: the curve above was measured scanning 12 strikes per game.")
