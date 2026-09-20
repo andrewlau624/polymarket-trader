@@ -56,7 +56,7 @@ EDGE_LOG  ?= research/us_edge_log.jsonl
 LOAD = set -a; . $(ENVFILE) 2>/dev/null || true; set +a;
 
 .DEFAULT_GOAL := help
-.PHONY: help setup pull check hunt account cancel flatten flatten-live calibrate tape watch lag scores keynumbers ladder ladder-test ladder-scan ladder-probe ladder-dry paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: help setup pull check hunt account cancel flatten flatten-live calibrate tape watch lag scores keynumbers ladder ladder-test ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -96,6 +96,9 @@ help:
 	@echo "  make ladder-scan     sweep every ladder, total the lockable dollars"
 	@echo "  make ladder-probe    can we short at all? (one 1-share test order)"
 	@echo "  make ladder-dry      scan the slate on a cycle, place nothing"
+	@echo "  make ladder-bg       same but detached - survives ^C and logout"
+	@echo "  make ladder-report   do the violations persist across sweeps?"
+	@echo "  make ladder-kill     stop the detached scanner"
 	@echo ""
 	@echo "  knobs: SIZE=$(SIZE) contracts/order  MARKETS=$(MARKETS)  MAX_INV=\$$$(MAX_INV)/market  BUY BAND=$(MIN_PX)-$(MAX_PX)"
 	@echo "         MIN_POOL=$(MIN_POOL)  MAX_TARGET=$(MAX_TARGET)  PERIOD=$(PERIOD)  ENDING_WITHIN=$(ENDING_WITHIN)"
@@ -184,6 +187,20 @@ ladder-probe:
 # Scans the whole slate on a cycle and places NOTHING.
 ladder-dry:
 	$(LOAD) $(PY) ladder_bot.py --near $(NEAR) --max-games $(GAMES) --cycle-min $(CYCLE)
+
+# Same, detached: survives ^C and logout. Check on it with `make ladder-report`.
+ladder-bg:
+	@$(LOAD) nohup $(PY) -u ladder_bot.py --near $(NEAR) --max-games $(GAMES) \
+	  --cycle-min $(CYCLE) > ladder_dry.out 2>&1 & echo "pid $$! -> ladder_dry.out"
+	@echo "stop it with:  make ladder-kill"
+
+ladder-kill:
+	-@pkill -f "ladder_bot.py" && echo "stopped" || echo "not running"
+
+ladder-report:
+	@$(PY) ladder_report.py
+	@echo ""
+	@tail -3 ladder_dry.out 2>/dev/null || true
 
 # ---------- live ---------------------------------------------------------
 

@@ -231,9 +231,11 @@ def main():
         print("!! --live but the short leg has not been proven. Run --probe first "
               "if you have not.")
 
+    sweep = 0
     try:
         while True:
             t0 = time.time()
+            sweep += 1
             try:
                 ladders, sports = inventory(c, args.min_strikes)
             except Exception as e:
@@ -260,6 +262,11 @@ def main():
                             f"credit {credit:+.3f} x{size} = ${credit * size:.2f}")
                     if not args.live:
                         print(line + "   [dry run]")
+                        log({"kind": "opportunity", "game": base, "sell": l1,
+                             "buy": l2, "credit": round(credit, 4), "size": size,
+                             "value": round(credit * size, 4),
+                             "sell_bid": q[l1]["bid"], "buy_ask": q[l2]["ask"],
+                             "sweep": sweep})
                         continue
                     args.sell_px = q[l1]["bid"]
                     args.buy_px = q[l2]["ask"]
@@ -268,10 +275,15 @@ def main():
                     print(line + ("   [PAIRED]" if got else "   [failed]"))
                     locked += got
                     save_state(state)
-            print(f"  sweep done in {(time.time() - t0) / 60:.1f}min | "
+            mins = (time.time() - t0) / 60
+            print(f"  sweep {sweep} done in {mins:.1f}min | "
                   f"opportunity ${found:.2f} | locked ${locked:.2f} | "
                   f"lifetime ${state['realized']:.2f} "
                   f"(unwind cost ${state['unwind_cost']:.2f})")
+            log({"kind": "sweep", "sweep": sweep, "ladders": len(ladders),
+                 "games_scanned": len(games), "opportunity": round(found, 4),
+                 "locked": round(locked, 4), "minutes": round(mins, 2),
+                 "sports": sports, "live": bool(args.live)})
             if args.once:
                 break
             time.sleep(max(0.0, args.cycle_min * 60 - (time.time() - t0)))
