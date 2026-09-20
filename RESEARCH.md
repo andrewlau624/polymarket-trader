@@ -220,6 +220,46 @@ measured it, which is curve fitting. Before it prices anything: fit the vol
 estimator on one period, test on a disjoint one, and confirm the flattening
 survives. Only then is a market-vs-model gap evidence about the market.
 
+## 8. Tested: in-play swing trading (momentum / mean reversion)
+
+    python run_swing_offline.py --by-category --gap 3
+
+The load-bearing question for day-trading events: does an in-play move predict
+the next move, net of costs? Rebuilds size-weighted 5-minute bars per outcome
+token from the cached tape and relates the past 3-bar move to the forward
+3-bar move, skipping `--gap` bars in between.
+
+**Result: no edge survives scrutiny.** The slope is negative (-0.047), i.e.
+slight mean reversion, and fading a >5c fall appeared to pay +0.022 net of a
+2c round trip (t=8.0), surviving a 15-minute gap (+0.014, t=5.2) so it is not
+bid/ask bounce. It still does not hold up:
+
+* **`mean fwd` is positive in EVERY bucket**, including flat and including
+  rises. Falls recover *and* rises continue. That is not reversion, it is an
+  upward drift in the sample. Across all observations it is **+0.0055**,
+  where a balanced Yes/No sample must be ~0 because the two legs cancel.
+* **The "edge" is monotonic in price level and flips sign at the top:**
+  +0.0181 at 0.02-0.15, +0.0085 at 0.15-0.30, +0.0046 at 0.30-0.70,
+  **-0.0094** at 0.70-0.85, -0.0087 at 0.85-0.98. Genuine reversion would be
+  roughly symmetric. This is the signature of a variable bounded in [0,1]:
+  after a fall you sit near the floor, where absolute moves up exceed moves
+  down. "Fade the drop" is mostly "buy the thing with more room above it".
+* Mid-book (0.30-0.70) still carries a +0.0066 mean forward move that the
+  boundary does not explain. **That unexplained bias is larger than the
+  +0.0046 the mid-book trade would earn**, so the trade is inside the error
+  of the measurement.
+
+**Do not trade this.** To revive it, explain the +0.0055 first: it is probably
+in the bar construction (empty bars are dropped, so a forward window spans
+variable real time, and thin trading correlates with direction). Rerun on
+fixed real-time spacing with both legs of each market forced into the sample,
+and check that the mean forward move is ~0 before reading any bucket.
+
+The honest summary of the day-trading thesis so far: at a 2c round trip on
+these books, a signal needs to move ~2.5c reliably. Nothing measured here does
+that once the bias is removed, and the cost is the binding constraint, not the
+signal.
+
 ## 6. Rules
 
 * Anything new goes through the sealed holdout in `research/holdout.yaml`
