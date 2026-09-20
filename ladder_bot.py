@@ -407,8 +407,22 @@ def main():
     print(f"  at a typical 0.03 credit that is about "
           f"${args.max_capital * 0.03:.2f} locked per cycle of capital.")
     if args.live:
-        print("!! --live but the short leg has not been proven. Run --probe first "
-              "if you have not.")
+        proven = None
+        if os.path.exists(LOG):
+            for line in open(LOG):
+                try:
+                    r = json.loads(line)
+                except Exception:
+                    continue
+                if r.get("kind") == "probe":
+                    proven = r.get("result")
+        if proven == "accepted":
+            print("  short leg: PROVEN (a probe was accepted, see the trade log)")
+        elif proven == "rejected":
+            raise SystemExit("a probe was REJECTED: the short leg is not available, "
+                             "so the paired trade cannot be executed here.")
+        else:
+            print("!! --live but no probe result on record. Run --probe first.")
 
     sweep = 0
     try:
@@ -426,9 +440,17 @@ def main():
                                                              key=lambda kv: -kv[1])))
             hits = past_hits()
             if args.max_days:
+                allb = list(ladders)
                 ladders = {b: k for b, k in ladders.items()
                            if within_days(b, args.max_days)}
                 print(f"  {len(ladders)} ladders settle within {args.max_days}d")
+                if not ladders and allb:
+                    # an empty window is not an empty venue: say when the next
+                    # one actually resolves, since CFB only plays certain days
+                    nxt = sorted({game_date(b) for b in allb if game_date(b)})
+                    print(f"  nearest settlement dates: {', '.join(nxt[:5])}")
+                    print(f"  every ladder here is college football, which plays "
+                          f"Thu-Sat - raise --max-days to reach them.")
             games = rank_games(ladders, hits, args.rank)[: args.max_games]
             if hits:
                 top = [g for g, _k in games[:3]]

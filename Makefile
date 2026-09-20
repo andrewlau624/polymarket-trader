@@ -51,7 +51,8 @@ NEAR      ?= 12    # strikes nearest a pick'em to scan (violations cluster there
 GAMES     ?= 25    # ladders to sweep per cycle
 CYCLE     ?= 20    # minutes between full sweeps in `make ladder-dry`
 TRIAL_CAP ?= 2     # $ for the first live trial
-TRIAL_DAYS ?= 1    # only games settling within N days, so it resolves fast
+TRIAL_DAYS ?= 7    # window for the trial. CFB plays Thu-Sat, so 1 finds
+                   # nothing on a Sunday; 7 reaches the next slate.
 RANK      ?= turnover  # turnover (return/day) | value (biggest credit)
 MIN_CREDIT ?= 0.01
 EDGE_LOG  ?= research/us_edge_log.jsonl

@@ -692,6 +692,28 @@ violations regardless of when it pays. `--rank turnover` (now the default)
 sorts by soonest settlement instead. `--rank value` keeps the old behaviour for
 a one-off sweep.
 
+### The hard limit: every ladder is college football
+
+`sports: cfb(50)` - every spread ladder on the venue is CFB. NFL has outright
+markets only, no ladders. CFB plays Thursday to Saturday, so:
+
+```
+Thu 9/25   clmsn-cah, army-templ, howrd-rutger
+Fri 9/26   most of the slate
+Sat 10/3   next week
+```
+
+A Sunday trial with `--max-days 1` matched **0 ladders**, correctly. Capital
+therefore turns over **1-2x per week, not daily** - not because the edge is
+weak but because the underlying events only happen on certain days. The
+turnover ranking still decides which ladder to take first within a slate, but
+it cannot manufacture a daily cycle out of a weekly sport.
+
+If daily compounding is the requirement, this strategy cannot deliver it alone.
+What could: a venue listing ladders on daily sports (NBA, MLB, soccer), or the
+cross-market check in section 14, which works on outright markets and so is
+not restricted to CFB.
+
 ### The bug that mattered more
 
 `game_date()` anchored its date pattern to the end of the slug. Sub-period
