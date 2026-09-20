@@ -11,3 +11,6 @@ polymarket-us>=0.1.2
 # The bot itself does not need these; `make lag` failed on a bot-only venv.
 numpy>=1.24
 pandas>=2.0
+
+# esports no-arbitrage LP (src/esports/noarb.py)
+scipy>=1.11

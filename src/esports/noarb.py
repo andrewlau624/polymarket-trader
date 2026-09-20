@@ -93,7 +93,10 @@ def find_arbitrage(markets, quotes, best_of=3, tol=1e-4, unit_cap=None,
     quotes: [(bid, bid_size, ask, ask_size), ...] aligned with `markets`.
     A missing side is passed as None and simply cannot be traded.
     """
-    from scipy.optimize import linprog
+    try:
+        from scipy.optimize import linprog
+    except ImportError:
+        raise SystemExit("scipy is required for the arbitrage LP. Run `make setup`.")
 
     M, seqs = build(markets, best_of, known)
     n = len(markets)
