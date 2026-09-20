@@ -1,41 +1,46 @@
 """Trade the SHAPE of a spread ladder, not the outcome of the game.
 
-A game's spread markets (…-pos-3pt5, …-neg-4pt, …-pos-7pt) are a discretised
-CDF of the margin of victory. Two things can be wrong with it, and neither
-requires predicting who wins:
+SEMANTICS, derived from the live ladder and NOT from venue docs (confirm them):
+a strike written `pos-7pt5` is the team RECEIVING 7.5 points; `neg-7pt5` is the
+team GIVING 7.5. Writing the line as a signed L (pos -> +L, neg -> -L), the
+contract pays 1 iff
 
-  1. MONOTONICITY. P(margin > 7) can never exceed P(margin > 6). A violation
-     is risk-free: buy the cheap high strike, sell the dear low one. The
-     research graveyard buried this - on the GLOBAL venue. This venue is
-     newer and thinner and has never been checked.
+    margin + L > 0        i.e.   margin > -L
 
-  2. KEY NUMBERS. Adjacent strikes isolate an exact margin:
-     P(>k-0.5) - P(>k+0.5) = P(margin == k). Football margins spike on 3 and
-     7 (NFL: 14.5% land on 3 against 2.9% under a smooth normal). A ladder
-     priced off a smooth curve underprices those and overprices 9/11/12/13.
+so the price is NON-DECREASING in L: covering +5.5 is strictly easier than
+covering +1.5. An earlier version of this file assumed `P(margin > k)` and
+therefore reported the ladder's normal upward shape as nine risk-free
+arbitrages. It printed negative implied probabilities and I shipped it anyway.
+`--self-test` now pins the direction against real quotes.
 
-Both are two-leg positions - long one strike, short the next - which is the
-"two opposing positions" idea in the one structure where it has real content.
-YES/NO on a single market is pinned to $1 and cannot work; two strikes on a
-ladder are not pinned to anything.
+Two tradeable structures, neither of which needs a view on who wins:
 
-    python run_ladder.py --slug-prefix asc-cfb-clmsn-cah-2026-09-25
+  1. MONOTONICITY. For L1 < L2, covering L2 is easier, so P(L2) >= P(L1). If
+     bid(L1) > ask(L2) you can sell the harder leg and buy the easier one for a
+     credit whose worst case is zero. Checked on EXECUTABLE prices, never mids:
+     a mid-based check invents arbitrage out of a wide spread.
+
+  2. KEY NUMBERS. Adjacent lines isolate an exact margin: the pair (L1, L2)
+     pays iff -L2 < margin <= -L1. Football margins spike on 3 and 7 (NFL:
+     14.5% on 3 against 2.9% smooth), so a ladder priced off a smooth curve
+     misprices them. This only means anything once the ladder is monotone -
+     an inconsistent ladder produces garbage implied point masses.
+
+    python run_ladder.py --self-test
     python run_ladder.py --list
+    python run_ladder.py --slug-prefix asc-cfb-clmsn-cah-2026-09-25
 
-CONFIRM THE CONTRACT SEMANTICS FIRST. A strike written "5pt" may mean "wins
-by more than 5" or "by 5 or more". Those differ by exactly the point mass at
-5, which is the thing being traded. The script assumes strict '>' and says so
-in every line it prints.
+SIZE MATTERS. A 4c edge on 2 shares is 8 cents. Depth at the touch is printed;
+read it before getting excited.
 """
 
 import argparse
 import os
 import re
+import time
 from collections import defaultdict
 
 import pandas as pd
-
-from src.pm_us.client import UsClient, px
 
 STRIKE = re.compile(r"^(?P<base>.+?)-(?P<sign>pos|neg)-(?P<num>\d+)(?:pt(?P<frac>\d+)?)?$")
 SCORES = os.path.join("data", "scores_{league}.csv")
@@ -71,6 +76,7 @@ def main():
     ap.add_argument("--cost", type=float, default=0.02, help="round-trip, both legs")
     args = ap.parse_args()
 
+    from src.pm_us.client import UsClient   # only the live path needs the SDK
     c = UsClient()
     try:
         progs = c.all_programs()
@@ -97,72 +103,128 @@ def main():
     if not ks:
         raise SystemExit(f"no ladder found for {args.slug_prefix!r} (try --list)")
 
-    print(f"\n{args.slug_prefix}: {len(ks)} strikes. Prices are mid; '>' semantics assumed.")
+    print(f"\n{args.slug_prefix}: {len(ks)} strikes. EXECUTABLE prices; "
+          f"pays iff margin > -line.")
     quotes = {}
-    for k in sorted(ks):
+    for i, k in enumerate(sorted(ks)):
         try:
             bids, asks, _state = c.book_levels(ks[k])
         except Exception as e:
             print(f"  {k:>+7.1f}  book failed: {type(e).__name__}")
+            time.sleep(0.6)
             continue
-        b = bids[0][0] if bids else None
-        a = asks[0][0] if asks else None
-        mid = (b + a) / 2 if (b is not None and a is not None) else (b or a)
-        quotes[k] = {"bid": b, "ask": a, "mid": mid}
-        sp = (a - b) if (b is not None and a is not None) else float("nan")
-        print(f"  {k:>+7.1f}  bid {str(b):>6}  ask {str(a):>6}  mid "
-              f"{'n/a' if mid is None else f'{mid:.3f}'}  spread {sp:.3f}")
+        b = (bids[0][0], bids[0][1]) if bids else (None, 0)
+        a = (asks[0][0], asks[0][1]) if asks else (None, 0)
+        quotes[k] = {"bid": b[0], "bid_sz": b[1], "ask": a[0], "ask_sz": a[1]}
+        sp = (a[0] - b[0]) if (b[0] is not None and a[0] is not None) else float("nan")
+        print(f"  {k:>+7.1f}  bid {str(b[0]):>6} x{b[1]:>7.0f}   "
+              f"ask {str(a[0]):>6} x{a[1]:>7.0f}   spread {sp:.3f}")
+        time.sleep(0.25)          # the venue rate-limits around 20 req/s
 
-    live = {k: q["mid"] for k, q in quotes.items() if q["mid"] is not None}
-    if len(live) < 2:
-        raise SystemExit("\nnot enough two-sided strikes to compare.")
+    report(quotes, args.league, args.cost)
 
-    # --- 1. monotonicity: P(> k) must fall as k rises -----------------------
-    print("\n== MONOTONICITY (a violation is risk-free) ==")
-    order = sorted(live)
-    bad = 0
-    for lo, hi in zip(order[:-1], order[1:]):
-        if live[hi] > live[lo] + 1e-9:
-            gap = live[hi] - live[lo]
-            bad += 1
-            print(f"  ! P(>{hi:+.1f})={live[hi]:.3f} EXCEEDS P(>{lo:+.1f})={live[lo]:.3f} "
-                  f"by {gap:.3f}")
-            print(f"    sell the {hi:+.1f}, buy the {lo:+.1f}: locks {gap:.3f}/share "
-                  f"minus {args.cost:.3f} cost = {gap - args.cost:+.3f}")
-    if not bad:
-        print("  none - the ladder is internally consistent.")
 
-    # --- 2. key numbers -----------------------------------------------------
-    emp = empirical_pmf(args.league)
-    if emp is None:
-        print(f"\n(no data/scores_{args.league}.csv - run fetch_scores.py for the "
-              f"key-number comparison)")
+def report(quotes, league, cost):
+    ks = sorted(quotes)
+    print("\n== MONOTONICITY (executable; worst case zero) ==")
+    found = []
+    for i, l1 in enumerate(ks):
+        b1 = quotes[l1]["bid"]
+        if b1 is None or quotes[l1]["bid_sz"] <= 0:
+            continue
+        for l2 in ks[i + 1:]:
+            a2 = quotes[l2]["ask"]
+            if a2 is None or quotes[l2]["ask_sz"] <= 0:
+                continue
+            credit = b1 - a2
+            if credit > 1e-9:
+                sz = min(quotes[l1]["bid_sz"], quotes[l2]["ask_sz"])
+                found.append((credit, l1, l2, sz))
+    for credit, l1, l2, sz in sorted(found, reverse=True):
+        print(f"  sell {l1:+.1f} @ {quotes[l1]['bid']:.3f}  buy {l2:+.1f} @ "
+              f"{quotes[l2]['ask']:.3f}  credit {credit:+.3f} x {sz:.0f} shares "
+              f"= ${credit * sz:.2f} locked")
+    if not found:
+        print("  none - the ladder is internally consistent on executable prices.")
+    else:
+        print(f"  {len(found)} violations. Covering the higher line is strictly")
+        print(f"  easier, so the pair can never lose. Both legs must fill.")
+
+    pmf = empirical_pmf(league)
+    if pmf is None:
+        print(f"\n(no data/scores_{league}.csv - run fetch_scores.py)")
         return
-    pmf, n = emp
-    print(f"\n== KEY NUMBERS (vs {n:,} historical {args.league.upper()} finals) ==")
+    dist, n = pmf
+    # the market's own win probability, from the line nearest zero, to split
+    # P(|margin| = k) into the two signed sides
+    near = min(ks, key=lambda k: abs(k))
+    pw = quotes[near]["bid"], quotes[near]["ask"]
+    p_win = (pw[0] + pw[1]) / 2 if None not in pw else 0.5
+    print(f"\n== KEY NUMBERS (vs {n:,} {league.upper()} finals; "
+          f"P(win)~{p_win:.2f} from the {near:+.1f} line) ==")
+    if found:
+        print("  WARNING: the ladder is not monotone. Implied point masses in the")
+        print("  inconsistent region are meaningless - fix or ignore those first.")
     print(f"  {'margin':>7} {'implied':>9} {'actual':>8} {'edge':>8} {'net':>8}  action")
-    found = 0
-    for lo, hi in zip(order[:-1], order[1:]):
-        # a strike pair straddling exactly one integer isolates that margin
-        span = [k for k in range(int(lo) - 1, int(hi) + 2) if lo < k < hi]
+    shown = 0
+    for l1, l2 in zip(ks[:-1], ks[1:]):
+        span = [m for m in range(int(-l2) - 2, int(-l1) + 3) if -l2 < m <= -l1]
         if len(span) != 1:
             continue
-        k = span[0]
-        implied = live[lo] - live[hi]
-        actual = float(pmf.get(abs(k), 0.0))
+        m = span[0]
+        p1, p2 = quotes[l1], quotes[l2]
+        if None in (p1["bid"], p1["ask"], p2["bid"], p2["ask"]):
+            continue
+        implied = ((p2["bid"] + p2["ask"]) / 2) - ((p1["bid"] + p1["ask"]) / 2)
+        two_sided = float(dist.get(abs(m), 0.0))
+        actual = two_sided * (p_win if m > 0 else (1.0 - p_win))
         edge = actual - implied
-        net = abs(edge) - args.cost
+        net = abs(edge) - cost
         if net <= 0:
             continue
-        found += 1
-        act = "BUY the vertical" if edge > 0 else "SELL the vertical"
-        print(f"  {k:>7} {implied:>9.3f} {actual:>8.3f} {edge:>+8.3f} {net:>+8.3f}  {act}")
-    if not found:
-        print("  no adjacent pair isolates a single margin with an edge over cost.")
-    print("\n  implied = price(lower strike) - price(upper strike), i.e. the market's")
-    print("  P(margin == k). actual = how often it really lands there. This is a")
-    print("  relative-value trade between two strikes: it does not care who wins.")
+        shown += 1
+        print(f"  {m:>7} {implied:>9.3f} {actual:>8.3f} {edge:>+8.3f} {net:>+8.3f}  "
+              f"{'BUY' if edge > 0 else 'SELL'} the {l1:+.1f}/{l2:+.1f} vertical")
+    if not shown:
+        print("  no adjacent pair isolates one margin with an edge over cost.")
+    print("\n  actual splits P(|margin|=k) by the market's win probability, which")
+    print("  assumes the conditional split equals the unconditional one. Crude for")
+    print("  a heavy favourite; fine near a pick'em.")
+
+
+FIXTURE = {   # real clmsn-cah quotes, 2026-09-19
+ -20.5: (0.03, 0.035), -17.5: (0.03, 0.035), -16.5: (0.10, 0.105),
+ -14.5: (0.03, 0.12), -13.5: (0.215, 0.22), -6.5: (0.365, 0.37),
+ -2.5: (0.495, 0.50), -1.5: (0.595, 0.60), -0.5: (0.58, 0.585),
+ 0.5: (0.55, 0.555), 1.5: (0.605, 0.61), 5.5: (0.565, 0.57),
+ 6.5: (0.66, 0.665), 7.5: (0.825, 0.83), 14.5: (0.985, 0.99),
+ 20.5: (0.985, 0.99)}
+
+
+def self_test():
+    """The ladder must read as non-decreasing in the line, and find 6 arbs."""
+    q = {k: {"bid": v[0], "ask": v[1], "bid_sz": 100, "ask_sz": 100}
+         for k, v in FIXTURE.items()}
+    ks = sorted(q)
+    mids = [(q[k]["bid"] + q[k]["ask"]) / 2 for k in ks]
+    inc = sum(1 for a, b in zip(mids[:-1], mids[1:]) if b >= a - 1e-9)
+    print(f"non-decreasing steps {inc}/{len(ks) - 1} "
+          f"(must be a large majority, or the sign convention is inverted)")
+    assert inc >= (len(ks) - 1) * 0.7, "ladder is not increasing - check semantics"
+    n = 0
+    for i, l1 in enumerate(ks):
+        for l2 in ks[i + 1:]:
+            if q[l1]["bid"] - q[l2]["ask"] > 1e-9:
+                n += 1
+    print(f"executable violations found: {n} (expected 6 on this fixture)")
+    assert n == 6, f"expected 6, got {n}"
+    report(q, "cfb", 0.02)
+    print("\nself-test OK")
 
 
 if __name__ == "__main__":
-    main()
+    import sys as _s
+    if "--self-test" in _s.argv:
+        self_test()
+    else:
+        main()

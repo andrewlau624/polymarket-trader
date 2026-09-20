@@ -53,7 +53,7 @@ EDGE_LOG  ?= research/us_edge_log.jsonl
 LOAD = set -a; . $(ENVFILE) 2>/dev/null || true; set +a;
 
 .DEFAULT_GOAL := help
-.PHONY: help setup pull check hunt account cancel flatten flatten-live calibrate tape watch lag scores keynumbers ladder paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: help setup pull check hunt account cancel flatten flatten-live calibrate tape watch lag scores keynumbers ladder ladder-test paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -162,6 +162,9 @@ keynumbers:
 
 ladder:
 	$(LOAD) $(PY) run_ladder.py --league $(LEAGUE) $(if $(GAME),--slug-prefix $(GAME),--list)
+
+ladder-test:
+	$(PY) run_ladder.py --self-test
 
 # ---------- live ---------------------------------------------------------
 

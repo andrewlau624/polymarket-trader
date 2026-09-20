@@ -314,9 +314,60 @@ Reasons it may still be nothing, in order of how likely they are to kill it:
    not be real prices.
 4. Both legs must fill. One-legged, it is a naked directional bet.
 
-`run_ladder.py` checks the live ladder for both monotonicity violations (which
-would be risk-free, and which the graveyard only ever tested on the GLOBAL
-venue, never this one) and key-number mispricing.
+### The semantics, and the bug that came from guessing them
+
+The first version of `run_ladder.py` assumed a strike meant `P(margin > k)`
+and reported **nine risk-free arbitrages** on the first live ladder. All nine
+were fake. The live prices run 0.033 at the -20.5 line up to 0.988 at +20.5 -
+they *increase* with the line, and a `P(margin > k)` series must decrease.
+
+The real convention: `pos-7pt5` is the team **receiving** 7.5 points,
+`neg-7pt5` is the team giving them. Writing the line as signed L, the contract
+pays iff `margin > -L`, so price is non-decreasing in L. Covering +5.5 is
+strictly easier than covering +1.5.
+
+The tool also printed implied probabilities of **-0.070, -0.143, -0.165**.
+Negative probabilities, shipped with a recommendation to trade on them. That
+is the fourth time in this project that assuming an API's semantics instead of
+checking them produced a confident wrong answer (`assetNotional`,
+`balanceReservation`, `category`, now this). `run_ladder.py --self-test` pins
+the direction against real quotes so it cannot silently invert again.
+
+### What is actually there
+
+Re-run on **executable** prices - bid of the harder leg against ask of the
+easier one, never mids, because a mid-based check invents arbitrage out of a
+wide spread - the same ladder has **6 genuine violations**:
+
+```
+sell -1.5 @ 0.595  buy +0.5 @ 0.555   credit +0.040/share, worst case 0
+sell +1.5 @ 0.605  buy +5.5 @ 0.570   credit +0.035/share, worst case 0
+sell -1.5 @ 0.595  buy +5.5 @ 0.570   credit +0.025/share, worst case 0
+sell -0.5 @ 0.580  buy +0.5 @ 0.555   credit +0.025/share, worst case 0
+... 2 more at +0.010
+```
+
+These are real: covering the higher line is strictly easier, so long-higher /
+short-lower can never lose, and the credit is kept. **This is the first
+positive-expectancy result in this file.** It is also the smallest - the
+binding question is depth at the touch, which the tool now prints. A 4c edge
+on 2 shares is 8 cents.
+
+Caveats before sizing: both legs must fill or it is a naked directional bet;
+the semantics above are inferred from price shape, not from venue documents,
+and should be confirmed; and short legs need collateral, so a pair ties up
+roughly $1 for a ~$0.04 lock.
+
+### Key numbers: not testable on this ladder yet
+
+With the sign fixed, the implied point masses come out far ABOVE empirical
+(margin 7: implied 0.165 against 0.033 actual). That is not evidence the
+market overprices key numbers - it is the same inconsistency that produces the
+arbitrage above, contaminating every adjacent pair. **An inconsistent ladder
+cannot be read as a distribution.** Retest only on a game whose ladder passes
+the monotonicity check.
+
+`run_ladder.py` checks both.
 
 ## 6. Rules
 
