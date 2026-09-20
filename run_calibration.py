@@ -88,7 +88,15 @@ def load_observations(cut=0.30, one_leg=True, min_trades=40, tape=TAPE, labels=N
         cutoff = t1 - cut * (t1 - t0)
 
         cid = os.path.basename(fp)[:-4]
-        legs = ["Yes"] if (one_leg and "Yes" in outs) else outs
+        # Esports markets label their legs with TEAM NAMES, so "Yes" is absent
+        # and this fell through to BOTH legs even when one_leg was set - which
+        # is the very thing one_leg exists to prevent. The two legs of a market
+        # are perfectly anti-correlated, so including both halves the effective
+        # sample and narrows every CI dishonestly. Pick one deterministically.
+        if one_leg:
+            legs = ["Yes"] if "Yes" in outs else [sorted(outs)[0]]
+        else:
+            legs = outs
         for o in legs:
             s = df[(df["outcome"] == o) & (df["timestamp"] <= cutoff)]
             if len(s) < 8:

@@ -59,6 +59,8 @@ TRIAL_CAP ?= 2
 # ~30s instead of ~15min, which shrinks the window where a dropped session
 # could kill the process between the two legs of a pair.
 VSLUG     ?=              # a specific market slug for `make verify`
+BANKROLL  ?= 20
+ES_CYCLE  ?= 3
 TRIAL_GAMES ?= 3
 TRIAL_NEAR ?= 8
 # window for the trial. CFB plays Thu-Sat, so 1 finds nothing on a
@@ -75,6 +77,33 @@ LOAD = set -a; . $(ENVFILE) 2>/dev/null || true; set +a;
 
 man:
 	@cat PLAYBOOK.md
+
+# ============ ESPORTS ============
+es:
+	@cat ESPORTS.md
+
+es-discover:
+	$(LOAD) $(PY) esports_bot.py --discover
+
+es-dry:
+	$(LOAD) $(PY) esports_bot.py --bankroll $(BANKROLL) --cycle $(ES_CYCLE)
+
+es-live:
+	@echo "LIVE esports bot. bankroll \$$$(BANKROLL), quarter Kelly, halts at 20% drawdown."
+	$(LOAD) $(PY) esports_bot.py --live --bankroll $(BANKROLL) --cycle $(ES_CYCLE)
+
+es-report:
+	@$(PY) -c "import json,os;p='research/esports_trades.jsonl';\
+rows=[json.loads(l) for l in open(p)] if os.path.exists(p) else [];\
+import collections;c=collections.Counter(r['kind'] for r in rows);\
+print(f'{len(rows)} records:',dict(c));\
+[print(' ARB',r['event'],round(r['profit'],3)) for r in rows if r['kind']=='arb'][:20]"
+
+bo3:
+	$(PY) run_bo3.py
+
+esports-calib:
+	$(PY) run_calibration.py --category Esports
 
 # ============ THE SHORT SET ============
 # Eight commands cover normal use. `make man` explains the rest.
@@ -136,7 +165,7 @@ quiet:
 	@echo "stopped and disabled. `make run` re-enables the old MM bot."
 
 
-.PHONY: money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history allmarkets keyvertical paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: es es-discover es-dry es-live es-report bo3 esports-calib money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history allmarkets keyvertical paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -152,6 +181,12 @@ help:
 	@echo ""
 	@echo "  make rules VSLUG=<slug>   what a market settles on"
 	@echo "  make man                  the full playbook"
+	@echo ""
+	@echo "  ESPORTS (CS2 / Valorant / LoL)"
+	@echo "  make es           the strategy, in full"
+	@echo "  make es-discover  what esports the venue lists"
+	@echo "  make es-dry       run it, place nothing"
+	@echo "  make es-live      run it for real (BANKROLL=$(BANKROLL))"
 	@echo ""
 	@echo "  first time here:  make setup"
 	@echo "  latest code:      make pull"
