@@ -284,7 +284,10 @@ def main():
     ap.add_argument("--min-credit", type=float, default=0.01,
                     help="skip violations thinner than this")
     ap.add_argument("--min-size", type=int, default=1)
-    ap.add_argument("--max-size", type=int, default=25)
+    ap.add_argument("--max-size", type=int, default=25,
+                    help="per-pair share cap for LIVE trading. A dry run ignores "
+                         "it unless given explicitly, so measured depth is real "
+                         "depth and not this number echoed back.")
     ap.add_argument("--near", type=int, default=12,
                     help="strikes nearest a pick'em to scan; violations cluster there")
     ap.add_argument("--min-strikes", type=int, default=6)
@@ -301,11 +304,16 @@ def main():
     ap.add_argument("--once", action="store_true")
     args = ap.parse_args()
     args.sell_px = args.buy_px = args.unwind_px = None  # filled per-violation
-    if not args.live and "--max-capital" not in sys.argv:
-        # Nothing is placed, so a dry run should reveal the REAL depth. Clipping
-        # sizes to a live cap is why every violation logged exactly 5 shares and
-        # the report had to warn that its own cap table was understated.
-        args.max_capital = 10_000.0
+    # Nothing is placed in a dry run, so it must reveal REAL depth. Every
+    # limit left in the sizing path gets echoed back as if it were a
+    # measurement: --max-capital made every violation log exactly 5 shares,
+    # and then --max-size made three of them log exactly 25. Third time, so
+    # lift BOTH unless the operator set them on purpose.
+    if not args.live:
+        if "--max-capital" not in sys.argv:
+            args.max_capital = 10_000.0
+        if "--max-size" not in sys.argv:
+            args.max_size = 100_000
 
     if not os.environ.get("POLYMARKET_US_KEY_ID"):
         raise SystemExit("set POLYMARKET_US_KEY_ID / POLYMARKET_US_SECRET_KEY")
@@ -383,6 +391,9 @@ def main():
                     used = state["deployed"] / max(args.max_capital, 1e-9)
                     if credit < args.min_credit * (1.0 + 3.0 * used):
                         continue
+                    if sz >= args.max_size and args.live:
+                        print(f"    (size {sz} hit --max-size {args.max_size}; "
+                              f"real depth may be larger)")
                     per_share = capital_per_share(q[l1]["bid"], q[l2]["ask"])
                     afford = int(max(room, 0) / per_share)
                     size = int(min(sz, args.max_size, afford))

@@ -96,8 +96,11 @@ def main():
             got += r["credit"] * take
             shares -= take
         print(f"    ${cap:>3} -> ${got:.2f}")
-    print("  Sizes above are themselves capped by --max-capital, so raising the")
-    print("  cap may reveal more depth than these rows show.")
+    clipped = [r for r in latest.values() if r["size"] in (5, 25, 100000)]
+    if clipped:
+        print(f"  {len(clipped)} of these sit exactly on an old default (5 or 25),")
+        print(f"  so they were clipped by a limit rather than measured. The totals")
+        print(f"  above are a FLOOR. Re-run the dry run on current code to measure.")
 
 
 if __name__ == "__main__":
