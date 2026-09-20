@@ -519,6 +519,16 @@ def main():
                     help="cross both legs instead of resting. Pays 0.0695*p*(1-p) "
                          "twice, which makes most observed violations negative. "
                          "Only sensible for a credit above ~0.036.")
+    ap.add_argument("--verticals", action="store_true",
+                    help="also take positive-EV verticals, not only risk-free "
+                         "ones. Payoff is {0,+$1} so a loss is the premium, but "
+                         "a half-fill is a naked directional leg.")
+    ap.add_argument("--min-ev", type=float, default=0.02,
+                    help="minimum EV per share for a vertical BET")
+    ap.add_argument("--kelly-fraction", type=float, default=0.25,
+                    help="fraction of Kelly for bets. Quarter, because the fair "
+                         "probability is estimated and full Kelly on a point "
+                         "estimate sizes as though it were certain.")
     ap.add_argument("--stale-hours", type=float, default=12.0,
                     help="cancel a resting pair that has not filled in this long")
     ap.add_argument("--once", action="store_true")
@@ -640,33 +650,55 @@ def main():
             for base, ks in games:
                 want = sorted(sorted(ks, key=lambda k: abs(k))[: args.near])
                 q = quotes_for(c, ks, want, args.pause, main._throttle)
-                # violations() is sorted best-credit-first, which matters:
-                # capital is scarce, so it must not be spent on 0.005 edges
-                # before a 0.04 one later in the same sweep.
+                # ONE scan, two risk profiles. A monotonicity violation is a
+                # vertical whose entry cost is negative; a key-number vertical
+                # is the same position bought for a small premium. Scanning only
+                # for free money missed most of what is there - on one real
+                # ladder this finds five tradeable verticals where the
+                # arbitrage-only scan found a couple, best +0.096 a share
+                # against the arb's +0.042.
+                from src.pm_us.vertical import fair_from_ladder
+                from src.pm_us.vertical import scan as vscan
+                pmf = fair_from_ladder(q) if args.verticals else {}
+                cands = vscan(q, pmf, tick=args.tick, maker=not args.take,
+                              min_ev=args.min_ev)
                 room = args.max_capital - state["deployed"]
                 days_to = days_to_settle(base)
                 need = max(args.hurdle * days_to, args.min_credit)
-                for credit, l1, l2, sz in violations(q):
-                    if credit < need or sz < args.min_size:
+                for r in cands:
+                    if not args.verticals and not r["risk_free"]:
                         continue
-                    # as capital runs out, demand a better return for what is left
-                    used = state["deployed"] / max(args.max_capital, 1e-9)
-                    if credit < need * (1.0 + 3.0 * used):
+                    l1, l2, sz = r["l1"], r["l2"], r["depth"]
+                    credit = -r["entry"]
+                    if sz < args.min_size:
                         continue
-                    if sz >= args.max_size and args.live:
-                        print(f"    (size {sz} hit --max-size {args.max_size}; "
-                              f"real depth may be larger)")
-                    per_share = capital_per_share(q[l1]["bid"], q[l2]["ask"])
+                    # risk-free legs gate on return per day of locked capital;
+                    # bets gate on EV, because their payoff is not the credit
+                    if r["risk_free"]:
+                        if credit < need:
+                            continue
+                        used = state["deployed"] / max(args.max_capital, 1e-9)
+                        if credit < need * (1.0 + 3.0 * used):
+                            continue
+                    elif r["ev"] < max(args.min_ev, args.hurdle * days_to):
+                        continue
+                    per_share = r["capital"]
                     afford = int(max(room, 0) / per_share)
                     size = int(min(sz, args.max_size, afford))
+                    if not r["risk_free"]:
+                        # a bet is sized by Kelly on its own edge, not by depth
+                        kelly_units = int(r["kelly"] * args.kelly_fraction
+                                          * max(args.max_capital, 0) / per_share)
+                        size = min(size, max(kelly_units, 0))
                     if size < args.min_size:
                         continue
                     found += credit * size
                     d = days_to
                     per_day = (credit * size) / max(d, 0.01)
                     cap = per_share * size
-                    line = (f"  {base[:32]:<32} sell {l1:+.1f} buy {l2:+.1f} "
-                            f"credit {credit:+.3f} x{size} = ${credit * size:.2f}"
+                    tag = "ARB" if r["risk_free"] else "BET"
+                    line = (f"  {tag} {base[:28]:<28} {l1:+.1f}/{l2:+.1f} "
+                            f"entry {r['entry']:+.4f} EV {r['ev']:+.4f} x{size}"
                             f"  | {d:.2f}d  ${per_day:.3f}/day  "
                             f"{per_day / max(cap, 0.01):.1%}/day")
                     if not args.live:
