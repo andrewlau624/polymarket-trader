@@ -102,6 +102,10 @@ print(f'{len(rows)} records:',dict(c));\
 bo3:
 	$(PY) run_bo3.py
 
+# do a game's outright legs sum to 1? the only structure on outright-only sports
+exhaustive:
+	$(LOAD) $(PY) run_exhaustive.py
+
 # live LoL state -> model win probability, no venue needed
 es-feed:
 	@$(PY) -c "import sys;sys.path.insert(0,'.');\
@@ -176,7 +180,7 @@ quiet:
 	@echo "stopped and disabled. `make run` re-enables the old MM bot."
 
 
-.PHONY: es es-discover es-dry es-live es-report es-feed bo3 esports-calib money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history allmarkets keyvertical paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: es es-discover es-dry es-live es-report es-feed bo3 exhaustive esports-calib money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history allmarkets keyvertical paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
