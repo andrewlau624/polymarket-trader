@@ -16,6 +16,18 @@ import argparse
 CURVE = [(5, 0.20), (9, 0.36), (20, 0.80), (50, 2.06), (100, 3.42)]
 
 
+def fee_per_share(price, rate):
+    """Polymarket's published curve: rate * p * (1-p) per share, per leg.
+
+    charanchivukula reports live losses that were "mostly fees" against a
+    backtest that modelled none. At rate=0.07 and p=0.58 this is 0.0171 a
+    share, so a two-leg pair pays 0.034 against credits of 0.025-0.040 - which
+    would make the whole trade negative. Whether it applies on Polymarket US is
+    unsettled; run_fees.py measures it.
+    """
+    return rate * price * (1.0 - price)
+
+
 def per_cycle(capital):
     if capital <= CURVE[0][0]:
         return capital * CURVE[0][1] / CURVE[0][0]
@@ -33,17 +45,36 @@ def main():
     ap.add_argument("--capital", type=float, default=100.0)
     ap.add_argument("--cycles-per-week", type=float, default=1.0,
                     help="1 = weekly CFB settlement. NBA ladders would be ~5.")
+    ap.add_argument("--fee-rate", type=float, default=0.0,
+                    help="fee curve coefficient: fee = rate*p*(1-p) per share "
+                         "per leg. 0 assumes none (current belief); 0.07 is the "
+                         "published Polymarket figure. Charged on BOTH legs.")
+    ap.add_argument("--avg-price", type=float, default=0.58,
+                    help="typical leg price, for the fee calculation")
+    ap.add_argument("--avg-credit", type=float, default=0.03,
+                    help="typical credit per share, for the fee comparison")
     ap.add_argument("--fill-rate", type=float, default=0.6,
                     help="fraction of found violations that actually fill both legs")
     args = ap.parse_args()
 
-    gross_cycle = per_cycle(args.capital) * args.fill_rate
+    fee2 = 2.0 * fee_per_share(args.avg_price, args.fee_rate)
+    survive = max(args.avg_credit - fee2, 0.0) / max(args.avg_credit, 1e-9)
+    gross_cycle = per_cycle(args.capital) * args.fill_rate * survive
     weekly = gross_cycle * args.cycles_per_week
     yearly = weekly * 52
     cost = args.hosting * 12
 
     print(f"capital ${args.capital:.0f} | {args.cycles_per_week:g} cycles/week | "
-          f"fill rate {args.fill_rate:.0%} | hosting ${args.hosting:.0f}/mo\n")
+          f"fill rate {args.fill_rate:.0%} | hosting ${args.hosting:.0f}/mo")
+    if args.fee_rate:
+        print(f"fees {args.fee_rate}*p*(1-p) x2 legs = {fee2:.4f}/share "
+              f"against a {args.avg_credit:.3f} credit -> "
+              f"{survive:.0%} of the edge survives")
+        if survive <= 0:
+            print("  FEES EXCEED THE CREDIT. The trade is negative at these prices.")
+    else:
+        print("fees: assumed ZERO (run_fees.py to verify - see RESEARCH.md S23)")
+    print()
     print(f"  per cycle      ${gross_cycle:>8.2f}")
     print(f"  per week       ${weekly:>8.2f}")
     print(f"  per year       ${yearly:>8.2f}")

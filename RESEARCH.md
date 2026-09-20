@@ -1013,6 +1013,93 @@ Two throughput wins came out of that switch:
   the interval down 3%, a 429 backs it off 80% - and converges to 5.8 req/s
   against a simulated 8 req/s ceiling, 3.5x the fixed pause.
 
+## 23. FEES MAY KILL THE WHOLE STRATEGY
+
+The single most important finding of the research phase.
+
+`charanchivukula/polymarket-trading-infra` publishes Polymarket's fee curve as
+**`0.07 * p * (1-p)` per share**, and reports live results of **-$135 over 46
+trades, "mostly fees"**, against a backtest that modelled none and expected
++$120. Applied to a two-leg ladder pair:
+
+```
+ leg px   fee/leg   2 legs   credit       NET
+  0.580    0.0171   0.0341    0.040   +0.0059
+  0.605    0.0167   0.0335    0.035   +0.0015
+  0.590    0.0169   0.0339    0.025   -0.0089
+  0.550    0.0173   0.0347    0.010   -0.0246
+```
+
+**Almost every pair we have found goes negative.** The best violation ever
+observed, 0.040, nets +0.006. The typical one loses money. `run_economics
+--fee-rate 0.07` prints "FEES EXCEED THE CREDIT" and a $0.00 year.
+
+Our own fills are consistent with a charge of roughly this size. Selling 7
+clmsn-cah at 0.550 against a 0.462 average should have realised $0.616 and
+realised **$0.440** — a gap of **0.0251 a share** against the model's 0.0173.
+Same order of magnitude, far too close to dismiss, though FIFO accounting could
+distort the arithmetic.
+
+**The definitive test is already running.** A correct monotonicity pair
+realises *exactly* the credit, because the legs cancel. So when the $2
+`clmsn-cah` pair settles on Thursday:
+
+* realises **+$0.05** -> no material fee, the strategy stands
+* realises **~$0.00 or negative** -> fees eat it, and the ladder trade is dead
+  at these credit sizes regardless of hosting, capital or frequency
+
+`run_fees.py` probes for a fills endpoint to read the fee field directly rather
+than inferring it. Guessing at this venue's semantics has been wrong six times
+in this project (`assetNotional`, `balanceReservation`, `category`,
+`buyingPower`, the ladder sign, the UTC date window); this one decides whether
+anything should trade at all.
+
+**Nothing should be sized up until Thursday settles.**
+
+### If fees are real, what survives
+
+Only credits above ~0.035, which were 2 of 15 observed violations. The
+implication is not "stop" but "raise the gate": `--hurdle` must then be set
+from `2*fee + target`, not from the target alone, and the opportunity count
+drops by roughly an order of magnitude.
+
+## 24. What the honest negative results teach
+
+`charanchivukula` is the most methodologically serious repo found, precisely
+because it published a failure:
+
+* **~100 configurations across five timeframes; exactly one survived.** A
+  log-normal fair-value model on 1h markets: +7.08c/contract, **t = 7.49**,
+  2,468 trades, profitable in all six data months. Live, it **earned zero**.
+  Cause: "overfitting + in-sample selection" — the threshold, debounce, sizing
+  and gates were all chosen on the same six months that produced the t-stat.
+  "A t-stat of 7.49 on the selection set is not out-of-sample evidence."
+* **The 5m/15m edge was a non-capturable stale-quote latency artifact** — it
+  vanished once realistic entry delay was added. "If the edge disappears when
+  you add realistic latency, it was never yours."
+* **Calibration was the cleanest diagnostic.** Actual win rates tracked the ASK
+  in every bucket while the model over-predicted by ~10 points. Exactly the
+  test `run_calibration.py` runs here.
+* **Capacity, not capital, binds.** Median visible top-of-book **~$59**. Which
+  matches our own finding that the $50->$100 marginal return halves.
+* Their executor re-validates every ticket before placing: edge against the
+  **ask** not the mid, ticket age <= 90s, >= 3 min to close, size capped at
+  `min(0.25*Kelly*bankroll, 10% bankroll, visible ask)`.
+
+That last one is a gap here: `ladder_bot` reads a book, then places, with the
+whole sweep in between. With 24 strikes a quote can be a minute stale by the
+time the pair goes out.
+
+### Why this project's structure is more defensible than theirs
+
+Their edge was a *model* of fair value, fitted on the same data that measured
+it. The monotonicity trade is not fitted to anything — `P(L2) >= P(L1)` is
+forced by the payoff definitions, so there is no parameter to overfit and no
+in-sample selection to survive. That is the one respect in which this is on
+firmer ground than a t-stat of 7.49.
+
+Fees, however, apply to logic and models alike.
+
 ## 6. Rules
 
 * Anything new goes through the sealed holdout in `research/holdout.yaml`

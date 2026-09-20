@@ -61,6 +61,9 @@ TRIAL_CAP ?= 2
 VSLUG     ?=              # a specific market slug for `make verify`
 BANKROLL  ?= 20
 HOSTING   ?= 18
+# fee curve coefficient: fee = rate*p*(1-p)/share/leg. 0.07 is the published
+# Polymarket figure and would make most ladder pairs NEGATIVE. Unverified here.
+FEE_RATE  ?= 0
 ES_CYCLE  ?= 3
 TRIAL_GAMES ?= 3
 TRIAL_NEAR ?= 8
@@ -117,7 +120,11 @@ multi:
 
 # is this worth running at all?
 economics:
-	@$(PY) run_economics.py --hosting $(HOSTING) --capital $(BANKROLL)
+	@$(PY) run_economics.py --hosting $(HOSTING) --capital $(BANKROLL) --fee-rate $(FEE_RATE)
+
+# what does this venue actually charge? decides whether the trade works at all
+fees:
+	$(LOAD) $(PY) run_fees.py --probe
 
 deploy:
 	@cat DEPLOY.md
@@ -213,7 +220,7 @@ quiet:
 	@echo "stopped and disabled. `make run` re-enables the old MM bot."
 
 
-.PHONY: es es-discover es-dry es-live es-report es-feed bo3 exhaustive bookline multi economics deploy live cycle snapshot snapshot-settle snapshot-calibrate esports-calib money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history allmarkets keyvertical paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: es es-discover es-dry es-live es-report es-feed bo3 exhaustive bookline multi economics fees deploy live cycle snapshot snapshot-settle snapshot-calibrate esports-calib money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history allmarkets keyvertical paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
