@@ -247,20 +247,26 @@ def inventory(c, min_strikes):
     return ladders, sports
 
 
-def quotes_for(c, ks, want, pause):
+def quotes_for(c, ks, want, pause, throttle=None):
+    """Book tops for a set of strikes, paced adaptively.
+
+    The previous version slept a fixed `pause` AND retried with its own
+    exponential backoff on top of the client's, so one rate-limited call could
+    cost 14 seconds and a 300-call sweep took 15 minutes - 3.0s per call
+    against a 0.6s target. AIMD finds the venue's actual tolerance instead.
+    """
+    from src.pm_us.throttle import Throttle, paced_call
+    t = throttle if throttle is not None else Throttle(start=pause)
     q = {}
     for k in want:
-        for attempt in range(3):
-            try:
-                bids, asks, _s = c.book_levels(ks[k])
-                q[k] = {"bid": bids[0][0] if bids else None,
-                        "bid_sz": bids[0][1] if bids else 0,
-                        "ask": asks[0][0] if asks else None,
-                        "ask_sz": asks[0][1] if asks else 0}
-                break
-            except Exception:
-                time.sleep(1.5 * (2 ** attempt))
-        time.sleep(pause)
+        try:
+            bids, asks, _s = paced_call(lambda: c.book_levels(ks[k]), t)
+        except Exception:
+            continue
+        q[k] = {"bid": bids[0][0] if bids else None,
+                "bid_sz": bids[0][1] if bids else 0,
+                "ask": asks[0][0] if asks else None,
+                "ask_sz": asks[0][1] if asks else 0}
     return q
 
 
@@ -440,6 +446,9 @@ def main():
                 print(f"inventory failed: {type(e).__name__} {e}; retrying")
                 time.sleep(30)
                 continue
+            from src.pm_us.throttle import Throttle
+            if not hasattr(main, "_throttle"):
+                main._throttle = Throttle(start=args.pause)
             subs = sum(1 for b in ladders if sub_period(b))
             print(f"\n[{now()[:19]}] {len(ladders)} ladders "
                   f"({subs} sub-period, settle intra-game) | sports: "
@@ -465,7 +474,7 @@ def main():
             found = locked = 0.0
             for base, ks in games:
                 want = sorted(sorted(ks, key=lambda k: abs(k))[: args.near])
-                q = quotes_for(c, ks, want, args.pause)
+                q = quotes_for(c, ks, want, args.pause, main._throttle)
                 # violations() is sorted best-credit-first, which matters:
                 # capital is scarce, so it must not be spent on 0.005 edges
                 # before a 0.04 one later in the same sweep.
@@ -514,6 +523,7 @@ def main():
                     locked += got
                     save_state(state)
             mins = (time.time() - t0) / 60
+            print(f"  pacing: {main._throttle.stats()}")
             print(f"  sweep {sweep} done in {mins:.1f}min | "
                   f"opportunity ${found:.2f} | locked ${locked:.2f} | "
                   f"lifetime ${state['realized']:.2f} "
