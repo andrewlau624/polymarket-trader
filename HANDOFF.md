@@ -58,7 +58,45 @@ here because the edge is slow — violations stood in 12 of 15 observations
 across ten sweeps over hours — and a resting *pair* is hedged against level
 moves by construction, both legs being on the same game.
 
-## THE open question — answer this first
+## THE biggest open question: $8,500 pools paying $0.00
+
+`make hunt` finds **active liquidity reward programs on the same ladder
+markets this account already trades** — `asc-cfb-col-bayl` and `clmsn-cah`,
+pool **$8,500** each, target 25,000 shares. NFL games carry $32,000 pools.
+
+Four rewards have been earned gross: **$0.08, credited $0.0000, every one
+`SKIPPED`.** Nobody has found out why.
+
+I previously dismissed the high share estimates as a ghost — the book is empty
+near the touch because the game is days away. **That was about the share, not
+the pool.** The pools are real, and it survives a hostile book:
+
+| competing book | my share of $8,500 |
+|---|---:|
+| empty near touch (what was observed) | **$139.56** |
+| half the target resting 20 ticks out | $22.51 |
+| the full 25,000 target resting *at* the touch | $6.79 |
+
+20 shares is ~$10 of capital. **The worst row still beats a year of the
+arbitrage.** This is the largest number in the project by an order of
+magnitude and it is one API call from being known.
+
+```
+make rewards        # dumps every field the venue returns, flags suspects
+```
+
+The bot reads `rewardPool`, `discountFactor`, `targetSize` and nothing else.
+Any qualification rule the venue publishes fails us silently.
+
+**Leading hypothesis, strong:** the reward-farming phase ran `--buy-only`,
+which quotes **one side**. Liquidity programs generally require **two-sided**
+quotes. If that is the rule, every skip was correct and the fix is a flag.
+
+Other candidates the dump will settle: a minimum resting size, a maximum
+spread from the touch, a minimum time-in-book (orders cancelled each cycle
+never mature), or an explicit reason field on the earnings row.
+
+## Open question 2: do maker orders actually rest?
 
 **Do post-only orders actually rest on this venue, or are they silently
 converted to takers?** Everything above depends on it and it has never been
@@ -153,6 +191,9 @@ Greedy allocation piles into three positions and stops scaling.
 
 ## What is worth trying next, in order
 
+0. **`make rewards`.** One call. Decides whether the reward line is
+   four figures or zero. Everything below is refinement on $107/yr.
+
 1. **Answer the post-only question.** Nothing else matters until then.
 2. **Move hosting to $0–4/mo.** Certain, larger than any optimisation.
 3. **Measure the maker fill rate.** `reconcile()` logs every pair as filled,
@@ -168,6 +209,31 @@ Greedy allocation piles into three positions and stops scaling.
 6. **`run_bookline.py`** prices a whole ladder from one DraftKings line (ESPN
    serves it free): spread gives the mean, the de-vigged moneyline pins the SD
    via `sigma = mu/Phi^-1(p)`. Built, ~25% game coverage, never run live.
+
+## You can see the box — things I could only guess at
+
+Previous agents worked blind through `make` targets. You can inspect
+processes, so settle these directly; each one cost real time to diagnose
+indirectly.
+
+```
+ps aux | grep -E 'ladder_bot|mm_bot'      # is anything actually running
+cat research/ladder_bot.lock              # stale lock has blocked 3+ cycles
+ls -la research/*.jsonl                   # these OOM'd the droplet once
+systemctl is-enabled pm-us-live pm-us-paper   # must be disabled: they cancel_all on boot
+tail -50 cron.log                         # sweep rc + explanation is logged
+free -m                                   # 3000MB ulimit was verified, but verify again
+```
+
+**A lock with no matching pid is the single most common failure.**
+`LOCK_MAX_AGE=2100` should kill it; confirm that logic actually fires rather
+than assuming it does.
+
+**Verify every change against live output.** Most of this project's lost time
+was correct analysis on broken plumbing: two patches silently failed to apply
+and were committed as done, a memory guard was tested on macOS where it is a
+no-op and shipped, and a scan regression returned $0.00 across 50 ladders
+while a known-good ladder carried 7 standing violations.
 
 ## How to work
 
