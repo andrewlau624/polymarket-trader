@@ -20,11 +20,28 @@ set -a; . /etc/pm-us.env 2>/dev/null || true; set +a
 
 say() { echo "[$(date -u +%FT%TZ)] $*" >> "$LOG"; }
 
-# HARD MEMORY CAP. A runaway process must die alone, not take the box with it.
-# Unbounded log reads OOM'd this droplet once; ulimit means the next such bug
-# kills one python and leaves everything else - including ssh - alive.
-MEM_MB="${MEM_MB:-700}"
-ulimit -v $((MEM_MB * 1024)) 2>/dev/null || say "warn: could not set ulimit"
+# MEMORY CAP, verified before it is trusted.
+#
+# ulimit -v limits VIRTUAL ADDRESS SPACE, not resident memory, and numpy/pandas
+# reserve well over a gigabyte of mappings against ~90MB of RSS. A 700MB cap
+# therefore killed python on import, before it could log anything - the guard
+# added to prevent an OOM became the thing stopping the bot. It was tested on
+# macOS, where ulimit -v is a no-op, so the failure only appeared in production.
+#
+# So: pick a limit with headroom, then PROVE the real imports survive it. If
+# they do not, run uncapped rather than silently dead - a bot that cannot start
+# is worse than one that might use too much memory.
+MEM_MB="${MEM_MB:-3000}"
+if ulimit -v $((MEM_MB * 1024)) 2>/dev/null; then
+  if "$PY" -c "import numpy, pandas" >/dev/null 2>&1; then
+    say "mem cap ${MEM_MB}MB (verified: numpy+pandas import under it)"
+  else
+    ulimit -v unlimited 2>/dev/null || true
+    say "warn: ${MEM_MB}MB cap broke numpy/pandas - running UNCAPPED. Raise MEM_MB."
+  fi
+else
+  say "warn: could not set ulimit; running uncapped"
+fi
 
 # keep our own log from becoming the next unbounded thing
 if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 8000000 ]; then
@@ -43,7 +60,7 @@ for svc in pm-us-live pm-us-paper; do
   fi
 done
 
-say "cycle start (mem cap ${MEM_MB}MB)"
+say "cycle start"
 
 # a stale lock from a killed run must not block every future cycle
 if [ -f research/ladder_bot.lock ]; then
@@ -81,7 +98,12 @@ timeout 1800 "$PY" ladder_bot.py --live --once \
   --max-capital "${CAP:-5}" --near "${NEAR:-24}" --max-games "${GAMES:-0}" --base-shares "${BASE_SHARES:-5}" \
   --min-credit "${MIN_CREDIT:-0.002}" --hurdle "${HURDLE:-0.004}" \
   ${VERTICALS:+--verticals} --min-ev "${MIN_EV:-0.02}" >> "$LOG" 2>&1
-say "ladder sweep rc=$?"
+rc=$?
+say "ladder sweep rc=$rc"
+if [ "$rc" -ne 0 ]; then
+  say "!! sweep exited non-zero. rc=124 is the timeout; rc=1 with no output"
+  say "   usually means the process could not start - check MEM_MB."
+fi
 
 # 2. record prices for the forward calibration study (free, builds the NBA case)
 timeout 600 "$PY" snapshot_prices.py >> "$LOG" 2>&1
