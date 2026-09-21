@@ -504,3 +504,6 @@ install-services:
 	  'WantedBy=multi-user.target' \
 	  | sudo tee /etc/systemd/system/$(LIVE_SVC).service >/dev/null
 	@sudo systemctl daemon-reload
+
+rewards: ## why liquidity rewards come back SKIPPED (pools are $8.5k-32k)
+	$(RUN) run_rewards.py --earnings
