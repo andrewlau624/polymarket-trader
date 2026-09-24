@@ -14,3 +14,4 @@ pandas>=2.0
 
 # esports no-arbitrage LP (src/esports/noarb.py)
 scipy>=1.11
+pytest>=8

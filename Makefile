@@ -227,6 +227,14 @@ quiet:
 
 help:
 	@echo ""
+	@echo "  Income engine (INCOME.md)"
+	@echo "  ---------------------------------------------------------"
+	@echo "  make income-dry     one full cycle, places nothing"
+	@echo "  make income-live    one full LIVE cycle (CAP=5)"
+	@echo "  make income-manage  fills, hedges, settlement only (LIVE)"
+	@echo "  make income-review  CLV, fill rate, kill-rule status"
+	@echo "  make test           run the test suite"
+	@echo ""
 	@echo "  Polymarket US"
 	@echo "  ---------------------------------------------------------"
 	@echo "  make money      cash, positions, orders"
@@ -507,3 +515,24 @@ install-services:
 
 rewards: ## why liquidity rewards come back SKIPPED (pools are $8.5k-32k)
 	$(RUN) run_rewards.py --earnings
+
+# ============ INCOME ENGINE (INCOME.md) ============
+INCOME_ARGS = --capital $(CAP) --strategies $(STRATEGIES) --max-games $(GAMES_I)
+CAP        ?= 5
+STRATEGIES ?= taker_arb,rest_hedge,value
+GAMES_I    ?= 0
+
+income-dry:
+	$(LOAD) $(PY) income_bot.py $(INCOME_ARGS)
+
+income-live:
+	$(LOAD) $(PY) income_bot.py --live $(INCOME_ARGS)
+
+income-manage:
+	$(LOAD) $(PY) income_bot.py --live --manage-only $(INCOME_ARGS)
+
+income-review:
+	@$(PY) income_bot.py --review
+
+test:
+	$(PY) -m pytest -q tests

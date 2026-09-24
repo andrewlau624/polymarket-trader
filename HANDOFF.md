@@ -1,5 +1,10 @@
 # Handoff
 
+> **2026-09-24: the trading engine was rebuilt on branch `income-refactor`.**
+> Read INCOME.md first. It explains why `ladder_bot.py`'s maker "arbitrage"
+> was not risk-free, and what replaces it. The rest of this file describes
+> the old bot and is kept for its measured facts and failure log.
+
 You are taking over a live prediction-market trading bot on Polymarket US.
 Everything below is either MEASURED (stated with its evidence) or ASSUMED
 (labelled). Do not treat the assumed parts as facts — six of them turned out

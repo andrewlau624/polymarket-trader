@@ -23,6 +23,7 @@ INTENT_BUY = "ORDER_INTENT_BUY_LONG"
 INTENT_SELL = "ORDER_INTENT_SELL_LONG"
 TYPE_LIMIT = "ORDER_TYPE_LIMIT"
 TIF_GTC = "TIME_IN_FORCE_GOOD_TILL_CANCEL"
+TIF_IOC = "TIME_IN_FORCE_IMMEDIATE_OR_CANCEL"
 
 
 def amount(p):
@@ -198,19 +199,28 @@ class UsClient:
         return self.c.orders.list().get("orders", [])
 
     # --- orders ----------------------------------------------------------
-    def place(self, slug, side, price, quantity, maker=True):
-        """side: 'buy' | 'sell'. maker=True sets participateDontInitiate (post-only)."""
+    def place(self, slug, side, price, quantity, maker=True, tif=None):
+        """side: 'buy' | 'sell'. maker=True sets participateDontInitiate (post-only).
+
+        tif='ioc' makes a taker order that fills what it can at `price` or
+        better and cancels the rest - a hard slippage cap, unlike a GTC limit
+        that would rest if the book moved away between read and send.
+        """
         params = {
             "marketSlug": slug,
             "intent": INTENT_BUY if side == "buy" else INTENT_SELL,
             "type": TYPE_LIMIT,
             "price": amount(price),
             "quantity": int(quantity),
-            "tif": TIF_GTC,
+            "tif": TIF_IOC if tif == "ioc" else TIF_GTC,
         }
         if maker:
             params["participateDontInitiate"] = True
         return self.c.orders.create(params)
+
+    def order(self, order_id):
+        """One order by id: state, cumQuantity, leavesQuantity, avgPx."""
+        return self._retry(lambda: self.c.orders.retrieve(order_id))
 
     def cancel(self, order_id, slug):
         return self.c.orders.cancel(order_id, {"marketSlug": slug})

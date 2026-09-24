@@ -64,6 +64,9 @@ def scoreboard(sport_path, date=None):
             "short": ev.get("shortName"),
             "date": ev.get("date"),
             "state": (ev.get("status") or {}).get("type", {}).get("state"),
+            # postponed/cancelled games can also read "post"; only a
+            # completed game has a margin anyone should settle on
+            "completed": bool((ev.get("status") or {}).get("type", {}).get("completed")),
             "teams": teams,
         })
     return out
