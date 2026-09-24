@@ -52,17 +52,29 @@ def log(rec):
 
 
 def load_state():
-    if os.path.exists(STATE):
-        try:
-            return json.load(open(STATE))
-        except Exception:
-            pass
-    return {"deployed": 0.0, "pairs": [], "realized": 0.0, "unwind_cost": 0.0}
+    """A corrupt state file is quarantined and fatal, never silently replaced
+    by a blank one: a blank state forgets every resting order the bot owns."""
+    if not os.path.exists(STATE):
+        return {"deployed": 0.0, "pairs": [], "realized": 0.0, "unwind_cost": 0.0}
+    try:
+        with open(STATE) as fh:
+            return json.load(fh)
+    except (ValueError, OSError) as e:
+        bad = f"{STATE}.corrupt-{int(time.time())}"
+        os.replace(STATE, bad)
+        raise SystemExit(f"state unreadable ({type(e).__name__}); moved to {bad}. "
+                         f"Resting orders are still live - check `make money`.")
 
 
 def save_state(s):
+    """Atomic: temp file, fsync, rename. A crash mid-write leaves the old file."""
     os.makedirs(os.path.dirname(STATE) or ".", exist_ok=True)
-    json.dump(s, open(STATE, "w"), indent=1)
+    tmp = f"{STATE}.tmp-{os.getpid()}"
+    with open(tmp, "w") as fh:
+        json.dump(s, fh, indent=1)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, STATE)
 
 
 def probe(c, args):
@@ -303,10 +315,13 @@ def reconcile(c, state, args):
     except Exception as e:
         print(f"  reconcile skipped: cannot read open orders ({type(e).__name__})")
         return
+    # Without positions a vanished order cannot be told apart from a filled
+    # one, and the old fallback ({}) booked every vanished pair as FILLED.
     try:
         pos = c.positions() or {}
-    except Exception:
-        pos = {}
+    except Exception as e:
+        print(f"  reconcile skipped: cannot read positions ({type(e).__name__})")
+        return
 
     from datetime import datetime, timezone
     still = []
@@ -328,7 +343,7 @@ def reconcile(c, state, args):
             # against positions before claiming it.
             net_s = _position_net(pos, p["sell"])
             net_b = _position_net(pos, p["buy"])
-            if pos and (net_s >= 0 or net_b <= 0):
+            if net_s >= 0 or net_b <= 0:
                 print(f"  orders gone but positions do not confirm a fill "
                       f"({p['sell'][:26]}) - treating as CANCELLED, not filled")
                 log({"kind": "vanished", "sell": p["sell"], "buy": p["buy"],
@@ -701,38 +716,6 @@ def main():
                     # the first game happened to offer.
                     pool.append({**r, "base": base, "ks": ks, "q": q,
                                  "days": days_to, "depth_cap": sz})
-                    continue
-                    found += credit * size
-                    d = days_to
-                    per_day = (credit * size) / max(d, 0.01)
-                    cap = per_share * size
-                    tag = "ARB" if r["risk_free"] else "BET"
-                    line = (f"  {tag} {base[:28]:<28} {l1:+.1f}/{l2:+.1f} "
-                            f"entry {r['entry']:+.4f} EV {r['ev']:+.4f} x{size}"
-                            f"  | {d:.2f}d  ${per_day:.3f}/day  "
-                            f"{per_day / max(cap, 0.01):.1%}/day")
-                    if not args.live:
-                        # spend the budget in simulation too, or every violation
-                        # is sized as if it had the whole cap to itself and the
-                        # sweep total becomes fiction
-                        state["deployed"] += per_share * size
-                        room -= per_share * size
-                        print(line + "   [dry run]")
-                        log({"kind": "opportunity", "game": base, "sell": l1,
-                             "buy": l2, "credit": round(credit, 4), "size": size,
-                             "value": round(credit * size, 4),
-                             "sell_bid": q[l1]["bid"], "buy_ask": q[l2]["ask"],
-                             "sweep": sweep})
-                        continue
-                    args.sell_px = q[l1]["bid"]
-                    args.buy_px = q[l2]["ask"]
-                    args.unwind_px = q[l1]["ask"] or (q[l1]["bid"] + args.cost)
-                    ks_named = dict(ks); ks_named["_base"] = base
-                    got = execute_pair(c, ks_named, credit, l1, l2, size,
-                                       state, args, quotes=q)
-                    print(line + ("   [PAIRED]" if got else "   [failed]"))
-                    locked += got
-                    save_state(state)
             mins = (time.time() - t0) / 60
             # ONE allocation across everything found, breadth first
             from src.pm_us.allocate import plan, summarise
