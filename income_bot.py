@@ -62,6 +62,8 @@ def parse(argv=None):
     ap.add_argument("--near", type=int, default=24, help="strikes per ladder")
     ap.add_argument("--max-games", type=int, default=0, help="0 = all")
     ap.add_argument("--max-days", type=int, default=7)
+    ap.add_argument("--scan-minutes", type=float, default=18.0,
+                    help="time budget for a full scan, soonest games first")
     ap.add_argument("--tick", type=float, default=0.001)
     ap.add_argument("--max-game-loss", type=float, default=3.0)
     ap.add_argument("--max-total-loss", type=float, default=8.0)
@@ -95,7 +97,10 @@ def parse(argv=None):
 
 # ---- inventory -------------------------------------------------------------
 
-def all_slugs(c, say=print, page=500, max_pages=200):
+INV_CACHE = os.path.join("research", "inventory_cache.json")
+
+
+def all_slugs(c, say=print, page=500, max_pages=200, ttl=1800):
     """Every active market slug, from BOTH listings, with the failures SAID.
 
     The first version swallowed every exception and returned 0 ladders on the
@@ -104,6 +109,18 @@ def all_slugs(c, say=print, page=500, max_pages=200):
     """
     if getattr(c, "_slug_cache", None) is not None:
         return c._slug_cache
+    # the full listing is ~150 pages; a 5-minute cron run must not pay that
+    # every time. The market list changes slowly - new games are listed days out.
+    import json as _j
+    import time as _t
+    try:
+        with open(INV_CACHE) as fh:
+            cached = _j.load(fh)
+        if _t.time() - cached["ts"] < ttl and cached["slugs"]:
+            c._slug_cache = set(cached["slugs"])
+            return c._slug_cache
+    except (OSError, ValueError, KeyError):
+        pass
     slugs, notes = set(), []
     got = 0
     try:
@@ -127,6 +144,11 @@ def all_slugs(c, say=print, page=500, max_pages=200):
     except Exception as e:
         notes.append(f"all_programs() FAILED {type(e).__name__}: {str(e)[:100]}")
     say(f"  inventory: {len(slugs)} slugs | " + " | ".join(notes))
+    if slugs:
+        tmp = INV_CACHE + ".tmp"
+        with open(tmp, "w") as fh:
+            _j.dump({"ts": _t.time(), "slugs": sorted(slugs)}, fh)
+        os.replace(tmp, INV_CACHE)
     kinds = {}
     for sl in slugs:
         kinds[sl.split("-", 1)[0]] = kinds.get(sl.split("-", 1)[0], 0) + 1
@@ -396,9 +418,17 @@ class Bot:
         self.say(f"  {len(ladders)} ladders, {len(todo)} in window | "
                  f"free ${self.free_capital():.2f} | strategies "
                  f"{','.join(s for s in STRATS if self.enabled(s)) or 'NONE'}")
+        import time as _t
+        t_end = _t.time() + self.a.scan_minutes * 60
+        done = 0
         for base, ks in todo:
+            if _t.time() > t_end:
+                self.say(f"  scan budget spent: {done}/{len(todo)} games scanned, "
+                         f"soonest first; the rest wait for a later cycle")
+                break
             self.game(base, ks)
             self.store.save(self.s)
+            done += 1
 
     def game(self, base, ks):
         info = self.lines.game(base)
@@ -591,15 +621,20 @@ class Bot:
                      f"paper positions open")
 
     def live_games(self, ladders, moneylines):
+        """Scoreboard-only pass to find what is live, then the pre-game line
+        for just those. Only games dated around today can be live."""
+        near = {_today_minus(1), _today_minus(0), _today_minus(-1)}
         out = {}
         for base, ks in ladders.items():
-            info = self.lines.game(base)
-            if info and info["state"] == "in":
-                out[base] = ("ladder", ks, info)
+            if game_date(base) in near:
+                info = self.lines.game(base, need_line=False)
+                if info and info["state"] == "in":
+                    out[base] = ("ladder", ks, self.lines.game(base))
         for slug in moneylines:
-            info = self.lines.game(slug)
-            if info and info["state"] == "in":
-                out[slug] = ("moneyline", {0.0: slug}, info)
+            if game_date(slug) in near:
+                info = self.lines.game(slug, need_line=False)
+                if info and info["state"] == "in":
+                    out[slug] = ("moneyline", {0.0: slug}, self.lines.game(slug))
         return out
 
     def pregame(self, game, info):

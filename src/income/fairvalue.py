@@ -42,14 +42,42 @@ class LineSource:
             time.sleep(self.pause)
         return hit[1]
 
-    def game(self, base):
-        """dict(model, state, margin, provider, ...) or None."""
+    def game(self, base, need_line=True):
+        """dict(model, state, margin, provider, ...) or None.
+
+        need_line=False answers from the scoreboard alone (state, score,
+        clock). Finding the live games among ~1,000 ladders must not fetch a
+        pre-game line for every one of them - that alone would outlast the
+        5-minute in-play window.
+        """
         hit = self.lines.get(base)
         if hit is not None and time.time() - hit[0] <= self.max_age:
-            return hit[1]
-        out = self._lookup(base)
-        self.lines[base] = (time.time(), out)
+            out = hit[1]
+        else:
+            out = self._lookup(base)
+            self.lines[base] = (time.time(), out)
+        if need_line and out and out["state"] in ("pre", "in") and "_line" not in out:
+            self._attach_line(out)
         return out
+
+    def _attach_line(self, out):
+        """The PRE-game line, fetched once per event: in-play it is the prior
+        the live model starts from, not a live price."""
+        out["_line"] = True
+        eid = out["event_id"]
+        if eid not in self.pre_lines:
+            from run_bookline import espn_line
+            self.pre_lines[eid] = espn_line(eid, out["_path"])
+            time.sleep(self.pause)
+        spread, p_home, p_away, prov = self.pre_lines[eid]
+        if spread is None:
+            return
+        sport = out["league"]
+        p_ref = p_home if out["ref_is_home"] else p_away
+        out["model"] = MarginModel.from_line(spread, p_ref, out["ref_is_home"],
+                                             league=sport if sport in ("cfb", "nfl") else "cfb")
+        out["provider"] = prov
+        out["spread"] = spread
 
     def _lookup(self, base):
         slug = base.replace("asc-", "aec-", 1)
@@ -90,18 +118,5 @@ class LineSource:
         except (TypeError, ValueError, KeyError):
             pass
         out["period"], out["clock"] = g.get("period"), g.get("clock")
-        if g.get("state") in ("pre", "in"):
-            # the PRE-game line, fetched once per event: in-play it is the
-            # prior the live model starts from, not a live price
-            if g["event_id"] not in self.pre_lines:
-                from run_bookline import espn_line
-                self.pre_lines[g["event_id"]] = espn_line(g["event_id"], path)
-                time.sleep(self.pause)
-            spread, p_home, p_away, prov = self.pre_lines[g["event_id"]]
-            if spread is not None:
-                p_ref = p_home if ref_is_home else p_away
-                out["model"] = MarginModel.from_line(spread, p_ref, ref_is_home,
-                                                     league=sport if sport in ("cfb", "nfl") else "cfb")
-                out["provider"] = prov
-                out["spread"] = spread
+        out["_path"] = path
         return out

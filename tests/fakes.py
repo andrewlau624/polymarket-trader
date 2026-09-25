@@ -82,5 +82,5 @@ class FakeLines:
     def __init__(self, games=None):
         self.games = games or {}
 
-    def game(self, base):
+    def game(self, base, need_line=True):
         return self.games.get(base)

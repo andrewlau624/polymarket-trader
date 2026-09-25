@@ -78,11 +78,12 @@ def test_go_rule_demands_both_halves():
 # ---- the loop against a fake venue -------------------------------------------
 
 def test_inplay_arb_trades_live_and_divergence_never_does(tmp_path, monkeypatch):
+    import datetime
     import income_bot
     from src.income import state as st
     from tests.fakes import FakeLines, FakeVenue
     from tests.test_execution import make_bot
-    G = "asc-cfb-aaa-bbb-2026-09-26"
+    G = f"asc-cfb-aaa-bbb-{datetime.date.today().isoformat()}"   # live today
     v = FakeVenue()
     v.set_book(f"{G}-neg-1pt5", 0.60, 0.62)        # violation: bid(-1.5) > ask(+0.5)
     v.set_book(f"{G}-pos-0pt5", 0.50, 0.52)
