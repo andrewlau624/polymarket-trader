@@ -13,6 +13,10 @@ import time
 from src.income import state as st
 from src.income.signals import hedge_credit
 
+# A book can list offers while the market is not matching (suspended or halted
+# in-play): an IOC at the listed ask then gets nothing. On Liberty-Coastal six
+# hedge IOCs at a displayed 0.53 missed over 8 minutes. None = venue sent no state.
+TRADABLE = {None, "MARKET_STATE_OPEN"}
 TERMINAL = {"ORDER_STATE_FILLED", "ORDER_STATE_CANCELED", "ORDER_STATE_REJECTED",
             "ORDER_STATE_EXPIRED", "ORDER_STATE_REPLACED"}
 
@@ -65,8 +69,9 @@ class Executor:
         return paced_call(fn, self.throttle)
 
     def quote(self, slug):
-        bids, asks, _state = self._call(lambda: self.c.book_levels(slug))
-        return {"bid": bids[0][0] if bids else None,
+        bids, asks, state = self._call(lambda: self.c.book_levels(slug))
+        return {"state": state,
+                "bid": bids[0][0] if bids else None,
                 "bid_sz": bids[0][1] if bids else 0,
                 "ask": asks[0][0] if asks else None,
                 "ask_sz": asks[0][1] if asks else 0,
@@ -76,9 +81,11 @@ class Executor:
         out = {}
         for L in lines:
             try:
-                out[L] = self.quote(ks[L])
+                q = self.quote(ks[L])
             except Exception:
                 continue
+            if q["state"] in TRADABLE:
+                out[L] = q                  # a non-matching book is no price at all
         return out
 
     # ---- orders --------------------------------------------------------
@@ -281,6 +288,9 @@ class Executor:
             q = self.quote(fol["slug"])
         except Exception:
             self.say(f"    hedge book unreadable for {fol['slug'][-22:]}; retry next cycle")
+            return
+        if q.get("state") not in TRADABLE:
+            self.say(f"    hedge {fol['slug'][-22:]}: market {q['state']}, waiting")
             return
         px = q["ask"] if side == "buy" else q["bid"]
         if px is None:

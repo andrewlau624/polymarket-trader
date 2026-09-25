@@ -18,7 +18,7 @@ class FakeVenue:
     # --- UsClient surface ----------------------------------------------
     def book_levels(self, slug):
         b, a = self.books.get(slug, ([], []))
-        return list(b), list(a), "open"
+        return list(b), list(a), getattr(self, "states", {}).get(slug, "MARKET_STATE_OPEN")
 
     def place(self, slug, side, price, qty, maker=True, tif=None):
         bids, asks = self.books.get(slug, ([], []))

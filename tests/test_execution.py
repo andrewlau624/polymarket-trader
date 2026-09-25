@@ -117,6 +117,22 @@ def test_hedge_waits_on_slippage_then_forces(env):
     assert st.book(s, G)["pos"]["0.5"] == 5            # forced after max_naked_min
 
 
+def test_suspended_book_is_no_price(env):
+    """Liberty-Coastal: the book listed a 0.53 ask while the market was not
+    matching, and six hedge IOCs at it got nothing."""
+    store, s, v, ex = env
+    gid, rec = rest_group(ex, v)
+    v.states = {S2: "MARKET_STATE_SUSPENDED"}
+    assert ex.quotes({0.5: S2}, [0.5]) == {}
+    v.fill(rec["oid"], 5)
+    ex.manage_groups(force_games={G})
+    assert st.book(s, G)["pos"].get("0.5", 0) == 0     # no order sent into it
+    assert not [o for o in v.orders.values() if o["marketSlug"] == S2]
+    v.states = {}
+    ex.manage_groups(force_games={G})
+    assert st.book(s, G)["pos"]["0.5"] == 5            # hedged once it reopens
+
+
 def test_resting_leader_pulled_when_hedge_moves(env):
     store, s, v, ex = env
     gid, rec = rest_group(ex, v)

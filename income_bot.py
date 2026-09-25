@@ -806,7 +806,8 @@ class Bot:
         append(INPLAY_OBS, {"ts": st.now_iso(), "game": base, "tau": tau,
                             "margin_now": info.get("margin_now"), "agree": agree,
                             "q": {str(L): [x["bid"], x["ask"], round(fair[L], 4)]
-                                  for L, x in q.items()}})
+                                  for L, x in q.items()},
+                            "state": sorted({str(x.get("state")) for x in q.values()})})
 
 
 def review(args):
