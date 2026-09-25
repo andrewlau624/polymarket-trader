@@ -33,7 +33,10 @@ done
 
 LIVE_FLAG=""
 [ "${LIVE:-1}" = "1" ] && LIVE_FLAG="--live"
-ARGS=(--capital "${CAP:-5}" --strategies "${STRATEGIES:-taker_arb,rest_hedge,value,inplay_arb,divergence}"
+# inplay_arb is OFF: its first two trades hedged 7 and 11 minutes after the
+# leader filled, at 7.5c and 11c worse, and were the whole -$1.16. Its kill rule
+# needs n=15, which at ~$0.55 a loss is past --max-total-loss. STRATEGIES=... to override.
+ARGS=(--capital "${CAP:-5}" --strategies "${STRATEGIES:-taker_arb,rest_hedge,value,divergence}"
       --edge-min "${EDGE_MIN:-0.03}" --max-game-loss "${MAX_GAME_LOSS:-2}"
       --max-total-loss "${MAX_TOTAL_LOSS:-5}" --daily-loss "${DAILY_LOSS:-2}")
 
