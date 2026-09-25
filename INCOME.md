@@ -16,7 +16,7 @@ names the flaw it fixes.
 | Fills inferred from aggregate positions. `positions()` failing ⇒ `{}` ⇒ vanished pairs booked as FILLED. | A fill is the change in **that order's** `cumQuantity`, read by id, priced from cumulative notional. If an order can't be read, nothing is booked. A send that times out is treated as *possibly live*: the intent is kept and the game is **frozen** until reconciled or cleared by hand (`--clear-suspect`). |
 | Non-atomic JSON state. A corrupt file silently became a blank state, forgetting live orders. | Atomic writes (tmp + fsync + rename). A corrupt file is quarantined and the bot refuses to run. Write-ahead intents: a crash between send and id is recovered from open orders, or the game is frozen. |
 | No risk limits. `greeks.py` unused. | **Exact** worst-case P&L per game, over every integer margin (ladders settle on one number, so no approximation is needed). Per-game and book-wide caps shrink orders to fit rather than skipping them. Daily-loss and drawdown halts. Net delta feeds MM skew. |
-| No kill rules, no measurement, 0 tests. | Kill rules registered before any live trading (below). CLV and markout measurement, `--review`, 46 tests (`make test`), including a regression for every finding of an adversarial review of this engine. |
+| No kill rules, no measurement, 0 tests. | Kill rules registered before any live trading (below). CLV and markout measurement, `--review`, 55 tests (`make test`), including a regression for every finding of an adversarial review of this engine. |
 | Traded any ladder, any date. | New risk only on ladders dated today or later **and** confirmed pre-game by ESPN. Without that match there are no kickoff pulls and no automatic settlement, so no new risk is taken. Sub-period ladders are therefore not traded yet. |
 | Dry runs wrote to the live state file. | Dry runs use `income_state.dry.json` / `income_ledger.dry.jsonl`. |
 
@@ -29,12 +29,48 @@ names the flaw it fixes.
 | `value` | one strike deviates from sportsbook fair by more than fee + 3c | directional on that game, sized by ¼ Kelly and capped by worst case | on |
 | `mm` | two-sided quotes around fair earn the rebate, and may qualify for reward pools | inventory; skewed by net delta, capped per strike | **off** (experimental) |
 
+## In-play: the day-trading half (`src/income/inplay.py`)
+
+While a game is live the bot polls every 5 s: ESPN's score, clock and period,
+plus the books of the ~14 strikes nearest the live fair value. Nothing is held
+to settlement except crossed arbitrage pairs, whose result is locked at entry.
+
+| name | status | what it does |
+|---|---|---|
+| `inplay_arb` | **LIVE** | Cross-strike violations as the ladder reprices mid-game. Both legs IOC; a short leg is hedged at once, with no slippage wait in-play. Needs no faster feed and no prediction. |
+| `divergence` | **PAPER** | Final margin ~ N(score diff + mu_pre·tau, sigma_pre²·tau) (Stern). Enters when the market is off by more than the full round trip (two taker fees + half the spread + slippage, ~4c at the money) plus 1c. Exits on convergence, an 8c stop, a 15-min time stop, or before the final 2 minutes. Also watches NFL/CFB moneylines. |
+
+Divergence stays on paper because this repo's evidence is against it:
+in-play momentum and reversion showed no edge in 128,517 observations (§8),
+and ESPN plays arrive 34–67 s late while the venue reprices in 50–100 ms (§4).
+By default, a gap between our model and the market means *we* are stale.
+The filters target exactly that:
+- the gap must persist for **90 s**;
+- the mid must stay within 2c while it does;
+- signals are ignored for **150 s** after any score change we observe;
+- a game is skipped when the model disagrees with the whole ladder, which is
+  what a missed score looks like.
+
+**GO rule (pre-registered).** Divergence may be considered for real money only
+after all of these hold:
+- ≥ 50 paper round trips over ≥ 6 games;
+- mean net P&L > 0 with t > 2;
+- positive in **both** halves of the sample.
+
+`make income-review` prints the status. Promoting it is a code change (it has
+no live path) and a human decision, not a flag.
+
+Raw observations (every 30 s per live game: book, fair, score, tau) go to
+`research/inplay_obs.jsonl`. That is the full-game capture §4 always needed,
+for studying gap persistence offline.
+
 ## Pre-registered kill rules (`src/income/risk.py`)
 
 Written before any live result. A tripped rule cancels that strategy's orders.
 It stays off until `--reset-kill <name>`.
 
 - **value**: after 40 fills on closed games, mean CLV after fees < 0 with t < −1.
+- **taker_arb / inplay_arb**: after 15 pairs, mean realised net credit < 0 with t < −1. A crossed pair should never lose; if it does, the fills aren't the prices the scan saw.
 - **rest_hedge**: after 20 completed pairs, mean realised net credit < 0 with t < −1.
 - **mm**: after 50 fills, mean (next-cycle markout + rebate) < 0 with t < −1.
 - **Book halt**: realised loss today ≥ `--daily-loss`, or realised drawdown ≥ 25% of starting capital. No new risk; management continues.
@@ -66,10 +102,9 @@ auto-settled.
 1. `make test` and `make income-dry` on the box. Read what it would do.
 2. Stop `cron_cycle.sh` in crontab. **Do not run both bots on one account**:
    they never touch each other's orders, but they spend the same cash.
-3. Crontab:
+3. Crontab, one line. The script picks full-scan vs in-play by time of day:
    ```
-   */5 * * * *        MODE=manage CAP=5 /home/ihearthim/polymarket-trader/income_cycle.sh
-   7 13,17,21,1 * * * MODE=full   CAP=5 /home/ihearthim/polymarket-trader/income_cycle.sh
+   */5 * * * *  CAP=5 /home/ihearthim/polymarket-trader/income_cycle.sh
    ```
 4. `make income-review` daily. Scale `CAP` only once `value` CLV has n ≥ 40
    and is positive, and the rest_hedge fill rate is measured, not guessed.

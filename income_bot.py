@@ -36,7 +36,8 @@ from src.pm_us.fees import maker_rebate, taker_fee
 STATE = os.path.join("research", "income_state.json")
 LEDGER = os.path.join("research", "income_ledger.jsonl")
 LOCK = os.path.join("research", "income.lock")
-STRATS = ("taker_arb", "rest_hedge", "value", "mm")
+STRATS = ("taker_arb", "rest_hedge", "value", "mm", "inplay_arb", "divergence")
+INPLAY_OBS = os.path.join("research", "inplay_obs.jsonl")
 
 
 def parse(argv=None):
@@ -68,6 +69,10 @@ def parse(argv=None):
     ap.add_argument("--max-naked-min", type=float, default=20.0)
     ap.add_argument("--max-rest-hours", type=float, default=6.0)
     ap.add_argument("--hedge-slip", type=float, default=0.02)
+    ap.add_argument("--inplay-minutes", type=float, default=0.0,
+                    help="after managing, day-trade live games for N minutes "
+                         "(inplay_arb live, divergence on paper)")
+    ap.add_argument("--poll", type=float, default=5.0, help="in-play poll seconds")
     ap.add_argument("--reset-kill", default="", help="clear a tripped kill rule")
     ap.add_argument("--clear-suspect", default="",
                     help="unfreeze a game after checking venue positions by hand")
@@ -110,6 +115,46 @@ def inventory(c):
         if base is not None:
             ladders.setdefault(base, {})[k] = sl
     return {b: v for b, v in ladders.items() if len(v) >= 2}
+
+
+def moneyline_inventory(c):
+    """Single-winner game markets (aec-<sport>-<a>-<b>-<date>), assumed to pay
+    on the FIRST team token like the ladders do. Paper-only, and the model is
+    refused on any market it disagrees with by 25c, which is what a flipped
+    side looks like."""
+    from src.pm_us.feed import parse_slug
+    slugs = set()
+    for params in ({}, {"limit": 1000}):
+        try:
+            slugs |= {m.get("marketSlug") or m.get("slug") for m in c.markets(**params)}
+        except Exception:
+            pass
+    return sorted(sl for sl in slugs - {None}
+                  if sl.startswith("aec-") and parse_slug(sl)
+                  and parse_slug(sl)[0] in ("cfb", "nfl"))
+
+
+def _now_s():
+    import time as _t
+    return _t.time()
+
+
+def _load_tracker(tr, d):
+    """Tracker state survives between 5-minute cron runs: without it every
+    run would restart the post-score cooldown and the persistence clock."""
+    from src.income.inplay import Divergence
+    if not d:
+        return
+    tr.last_score = {g: (tuple(v[0]), v[1]) for g, v in d.get("last_score", {}).items()}
+    for k, v in d.get("div", {}).items():
+        g, L = k.rsplit("|", 1)
+        tr.state[(g, float(L))] = Divergence(*v)
+
+
+def _dump_tracker(tr):
+    return {"last_score": {g: [list(v[0]), v[1]] for g, v in tr.last_score.items()},
+            "div": {f"{g}|{L}": [d.sign, d.since, d.mid0]
+                    for (g, L), d in tr.state.items()}}
 
 
 def game_date(base):
@@ -373,22 +418,22 @@ class Bot:
             self.do_mm(base, ks, q, fair, model)
 
     # ---- strategies ----------------------------------------------------
-    def do_taker_arb(self, base, ks, sig):
+    def do_taker_arb(self, base, ks, sig, kind="taker_arb", live_game=False):
         n = arb_shares(sig, self.free_capital(), self.a.max_pair_shares)
         n = self.fit(base, n, lambda k: [
             (sig["sell"], "sell", sig["sell_px"], k, taker_fee(sig["sell_px"], k)),
             (sig["buy"], "buy", sig["buy_px"], k, taker_fee(sig["buy_px"], k))])
         if n < 1:
             return
-        self.say(f"    ARB {sig['sell']:+.1f}/{sig['buy']:+.1f} credit "
+        self.say(f"    {kind.upper()} {sig['sell']:+.1f}/{sig['buy']:+.1f} credit "
                  f"{sig['credit']:+.4f} x{n}")
         if not self.a.live:
             self.ex.place(base, sig["sell"], ks[sig["sell"]], "sell", sig["sell_px"], n,
-                          False, "taker_arb")
+                          False, kind)
             self.ex.place(base, sig["buy"], ks[sig["buy"]], "buy", sig["buy_px"], n,
-                          False, "taker_arb")
+                          False, kind)
             return
-        gid = self.ex.new_group("taker_arb", base,
+        gid = self.ex.new_group(kind, base,
                                 {"line": sig["sell"], "slug": ks[sig["sell"]],
                                  "side": "sell", "oids": []},
                                 {"line": sig["buy"], "slug": ks[sig["buy"]],
@@ -396,10 +441,12 @@ class Bot:
                                 {"credit": sig["credit"], "hedge_px": sig["buy_px"]})
         g = self.s["groups"][gid]
         r = self.ex.place(base, sig["sell"], ks[sig["sell"]], "sell", sig["sell_px"],
-                          n, False, "taker_arb", group=gid, leg="leader")
+                          n, False, kind, group=gid, leg="leader")
         if r:
             g["leader"]["oids"].append(r["oid"])
-        self.ex.manage_groups()        # buys exactly what the sell filled
+        # buys exactly what the sell filled; in-play there is no waiting for
+        # a better hedge price - the book moves faster than a retry cycle
+        self.ex.manage_groups(force_games={base} if live_game else ())
 
     def do_rest_hedge(self, base, ks, sig):
         n = arb_shares(sig, self.free_capital(), self.a.max_pair_shares)
@@ -481,6 +528,151 @@ class Bot:
                     slot[side] = r["oid"]
 
 
+    # ---- in-play ---------------------------------------------------------
+    def inplay_loop(self, minutes):
+        """Day-trade live games until `minutes` elapse or none are live."""
+        import time as _t
+        from src.income.inplay import Tracker
+        self.lines.max_age = max(self.a.poll - 0.5, 1.0)
+        self.tracker = Tracker()
+        _load_tracker(self.tracker, self.s.get("tracker"))
+        ladders, moneylines = inventory(self.c), moneyline_inventory(self.c)
+        end = _t.time() + minutes * 60.0
+        polls = 0
+        while _t.time() < end:
+            t0 = _t.time()
+            live = self.live_games(ladders, moneylines)
+            if not live and not self.s.get("paper"):
+                if polls == 0:
+                    self.say("  in-play: no live games")
+                break
+            for base, (kind, ks, info) in live.items():
+                self.inplay_game(base, kind, ks, info, t0)
+            self.paper_sweep_dead(live, t0)
+            self.ex.manage_groups(force_games=set(live))
+            self.s["tracker"] = _dump_tracker(self.tracker)
+            self.store.save(self.s)
+            polls += 1
+            _t.sleep(max(0.0, self.a.poll - (_t.time() - t0)))
+        if polls:
+            self.say(f"  in-play: {polls} polls, {len(self.s.get('paper', {}))} "
+                     f"paper positions open")
+
+    def live_games(self, ladders, moneylines):
+        out = {}
+        for base, ks in ladders.items():
+            info = self.lines.game(base)
+            if info and info["state"] == "in":
+                out[base] = ("ladder", ks, info)
+        for slug in moneylines:
+            info = self.lines.game(slug)
+            if info and info["state"] == "in":
+                out[slug] = ("moneyline", {0.0: slug}, info)
+        return out
+
+    def pregame(self, game, info):
+        """The last PRE-game (mu, sigma): in-play, ESPN's pickcenter may show
+        a live line, which would make the prior chase the market."""
+        pg = self.s.setdefault("pregame", {})
+        m = info.get("model")
+        if info["state"] == "pre" and m:
+            pg[game] = {"mu": m.mu, "sigma": m.sigma, "league": m.league}
+        if game not in pg and m:
+            pg[game] = {"mu": m.mu, "sigma": m.sigma, "league": m.league,
+                        "from_live_pickcenter": True}
+        return pg.get(game)
+
+    def inplay_game(self, base, kind, ks, info, now):
+        from src.income.inplay import live_model, tau_remaining
+        league = info.get("league", "cfb")
+        tau = tau_remaining(league, info.get("period"), info.get("clock"))
+        pre = self.pregame(base, info)
+        lm = None
+        if pre and tau is not None and info.get("margin_now") is not None:
+            lm = live_model(pre["mu"], pre["sigma"], info["margin_now"], tau,
+                            pre.get("league", league))
+        center = -lm.mu if lm else 0.0
+        lines = sorted(sorted(ks, key=lambda k: abs(k - center))[: min(self.a.near, 14)])
+        q = self.ex.quotes(ks, lines)
+        if not q:
+            return
+        self.slugs[base] = {str(k): v for k, v in ks.items()}
+        if kind == "ladder" and self.enabled("inplay_arb") and base not in \
+                self.s.get("suspect_games", []):
+            for sig in taker_arbs(q, self.a.min_credit):
+                self.do_taker_arb(base, ks, sig, kind="inplay_arb", live_game=True)
+        if lm is None or "divergence" not in self.a.strats or "divergence" in self.s["kills"]:
+            return
+        fair = {L: (lm.p_cover(L) if kind == "ladder" else lm.p_cover(0.0)) for L in q}
+        self.tracker.observe_score(base, tuple(info.get("score") or ()), now)
+        agree = model_agrees(q, fair, max_median_dev=0.15)[0] if len(q) >= 3 else \
+            all(abs(fair[L] - (x["bid"] + x["ask"]) / 2) < 0.25 for L, x in q.items()
+                if x["bid"] is not None and x["ask"] is not None)
+        self.observe(base, q, fair, info, tau, now, agree)
+        self.paper_exits(base, q, fair, tau, info["state"], now)
+        if not agree:
+            return                      # our score/clock is stale, or the model is wrong
+        paper = self.s.setdefault("paper", {})
+        for L, x in q.items():
+            side = self.tracker.signal(base, L, fair[L], x["bid"], x["ask"], now)
+            if side:
+                from src.income.inplay import paper_open
+                pos = paper_open(paper, base, L, side, x["bid"], x["ask"], fair[L], now)
+                if pos:
+                    self.say(f"    PAPER {side} {base[4:30]} {L:+.1f} @ {pos['px']:.3f} "
+                             f"fair {fair[L]:.3f} | D {info['margin_now']:+d} tau {tau:.2f}")
+                    self.store.log("paper_open", game=base, line=L, side=side,
+                                   px=pos["px"], fair=fair[L], tau=tau,
+                                   margin_now=info["margin_now"])
+
+    def paper_exits(self, base, q, fair, tau, state, now):
+        from src.income.inplay import paper_close, paper_exit_reason
+        paper = self.s.get("paper", {})
+        for key in [k for k, p in paper.items() if p["game"] == base]:
+            pos = paper[key]
+            x = q.get(pos["line"]) or {}
+            pos["last_bid"], pos["last_ask"] = x.get("bid"), x.get("ask")
+            why = paper_exit_reason(pos, x.get("bid"), x.get("ask"),
+                                    fair.get(pos["line"], pos["fair"]), tau, now, state)
+            if why:
+                self._paper_close(key, pos, x.get("bid"), x.get("ask"), why)
+
+    def paper_sweep_dead(self, live, now):
+        """Close paper positions whose game is no longer live, at the last
+        seen price. Flat by the whistle, even on paper."""
+        for key, pos in list(self.s.get("paper", {}).items()):
+            if pos["game"] not in live:
+                self._paper_close(key, pos, pos.get("last_bid"), pos.get("last_ask"),
+                                  "game_not_live")
+
+    def _paper_close(self, key, pos, bid, ask, why):
+        from src.income.inplay import paper_close
+        pnl = paper_close(pos, bid, ask)
+        if pnl is None and why not in ("game_not_live", "end_of_game"):
+            return
+        self.s["paper"].pop(key, None)
+        self.store.log("paper_close", game=pos["game"], line=pos["line"],
+                       side=pos["side"], entry=pos["px"], pnl=pnl, reason=why,
+                       held_s=round(_now_s() - pos["t"], 1))
+        self.say(f"    PAPER close {pos['game'][4:30]} {pos['line']:+.1f} {why} "
+                 f"{'n/a' if pnl is None else f'{pnl:+.4f}'}/share")
+
+    def observe(self, base, q, fair, info, tau, now, agree):
+        """Raw material for the divergence study, sampled every 30s per game
+        into its own file so it never crowds the trading ledger."""
+        last = self._obs_t.get(base, 0.0) if hasattr(self, "_obs_t") else 0.0
+        if not hasattr(self, "_obs_t"):
+            self._obs_t = {}
+        if now - last < 30.0:
+            return
+        self._obs_t[base] = now
+        from src.pm_us.jsonlog import append
+        append(INPLAY_OBS, {"ts": st.now_iso(), "game": base, "tau": tau,
+                            "margin_now": info.get("margin_now"), "agree": agree,
+                            "q": {str(L): [x["bid"], x["ask"], round(fair[L], 4)]
+                                  for L, x in q.items()}})
+
+
 def review(args):
     from src.income.measure import summary
     sm = summary(args.ledger)
@@ -496,6 +688,12 @@ def review(args):
         state = s["kills"].get(k, "live")
         print(f"  {k:<11} n={m['n']:>4}/{min_n:<4} mean {m['mean']:+.4f} "
               f"t {m['t']:+.2f}  [{state}]  rule: {desc}")
+    from src.income.inplay import go_status
+    from src.pm_us.jsonlog import iter_records
+    trips = [(r["game"], r["pnl"], r["ts"]) for r in iter_records(args.ledger)
+             if r.get("kind") == "paper_close" and r.get("pnl") is not None]
+    ok, detail = go_status(trips)
+    print(f"\n  divergence (PAPER) go/no-go: {'GO' if ok else 'not yet'}  {detail}")
     print(f"\n  realized ${s['realized']:+.2f} | open books "
           f"{len([g for g in s['books'] if g not in s['settled']])} | "
           f"groups {len(s['groups'])} | worst case "
@@ -542,6 +740,8 @@ def main(argv=None):
         if not a.manage_only:
             bot.scan()
             bot.ex.manage_groups()
+        if a.inplay_minutes > 0:
+            bot.inplay_loop(a.inplay_minutes)
     finally:
         store.save(s)
         c.close()

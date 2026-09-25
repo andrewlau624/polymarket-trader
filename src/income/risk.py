@@ -70,6 +70,10 @@ KILL_RULES = {
     "rest_hedge": (20, "mean realised pair credit < 0 with t < -1"),
     # MM fills: markout vs fair one cycle later, net of rebate
     "mm": (50, "mean markout + rebate < 0 with t < -1"),
+    # crossed pairs lock their credit at entry unless a leg slips: a losing
+    # average means the fills are not the prices the scan saw
+    "taker_arb": (15, "mean realised pair credit < 0 with t < -1"),
+    "inplay_arb": (15, "mean realised pair credit < 0 with t < -1"),
 }
 
 

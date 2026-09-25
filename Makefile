@@ -232,6 +232,7 @@ help:
 	@echo "  make income-dry     one full cycle, places nothing"
 	@echo "  make income-live    one full LIVE cycle (CAP=5)"
 	@echo "  make income-manage  fills, hedges, settlement only (LIVE)"
+	@echo "  make income-inplay  day-trade live games for MIN minutes (LIVE)"
 	@echo "  make income-review  CLV, fill rate, kill-rule status"
 	@echo "  make test           run the test suite"
 	@echo ""
@@ -530,6 +531,10 @@ income-live:
 
 income-manage:
 	$(LOAD) $(PY) income_bot.py --live --manage-only $(INCOME_ARGS)
+
+income-inplay:
+	$(LOAD) $(PY) income_bot.py --live --manage-only --inplay-minutes $(or $(MIN),60) \
+	  --capital $(CAP) --strategies $(STRATEGIES),inplay_arb,divergence
 
 income-review:
 	@$(PY) income_bot.py --review

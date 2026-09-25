@@ -21,24 +21,34 @@ from src.pm_us.feed import SPORT_PATHS, _team_score, match_game, parse_slug, sco
 
 
 class LineSource:
-    def __init__(self, pause=0.25, log=print):
+    """max_age: seconds a scoreboard stays fresh. A one-shot cron run can
+    cache for its whole life; the in-play loop needs the score and clock
+    re-read every poll, so it passes a few seconds."""
+
+    def __init__(self, pause=0.25, log=print, max_age=1e9):
         self.boards, self.lines, self.pause, self.say = {}, {}, pause, log
+        self.max_age = max_age
+        self.pre_lines = {}          # event_id -> (spread, p_home, p_away, prov)
 
     def _board(self, path, date):
         key = (path, date)
-        if key not in self.boards:
+        hit = self.boards.get(key)
+        if hit is None or time.time() - hit[0] > self.max_age:
             try:
-                self.boards[key] = scoreboard(path, date=date)
+                hit = (time.time(), scoreboard(path, date=date))
             except Exception:
-                self.boards[key] = []
+                hit = (time.time(), hit[1] if hit else [])
+            self.boards[key] = hit
             time.sleep(self.pause)
-        return self.boards[key]
+        return hit[1]
 
     def game(self, base):
-        """dict(model, state, margin, provider, ...) or None. Cached per run."""
-        if base in self.lines:
-            return self.lines[base]
-        self.lines[base] = out = self._lookup(base)
+        """dict(model, state, margin, provider, ...) or None."""
+        hit = self.lines.get(base)
+        if hit is not None and time.time() - hit[0] <= self.max_age:
+            return hit[1]
+        out = self._lookup(base)
+        self.lines[base] = (time.time(), out)
         return out
 
     def _lookup(self, base):
@@ -71,14 +81,23 @@ class LineSource:
         try:
             ref = home if ref_is_home else away
             oth = away if ref_is_home else home
+            now_margin = int(float(ref["score"])) - int(float(oth["score"]))
             if g.get("state") == "post" and g.get("completed"):
-                out["margin"] = int(float(ref["score"])) - int(float(oth["score"]))
+                out["margin"] = now_margin
+            if g.get("state") == "in":
+                out["margin_now"] = now_margin
+                out["score"] = (ref["score"], oth["score"])
         except (TypeError, ValueError, KeyError):
             pass
-        if g.get("state") == "pre":
-            from run_bookline import espn_line
-            spread, p_home, p_away, prov = espn_line(g["event_id"], path)
-            time.sleep(self.pause)
+        out["period"], out["clock"] = g.get("period"), g.get("clock")
+        if g.get("state") in ("pre", "in"):
+            # the PRE-game line, fetched once per event: in-play it is the
+            # prior the live model starts from, not a live price
+            if g["event_id"] not in self.pre_lines:
+                from run_bookline import espn_line
+                self.pre_lines[g["event_id"]] = espn_line(g["event_id"], path)
+                time.sleep(self.pause)
+            spread, p_home, p_away, prov = self.pre_lines[g["event_id"]]
             if spread is not None:
                 p_ref = p_home if ref_is_home else p_away
                 out["model"] = MarginModel.from_line(spread, p_ref, ref_is_home,

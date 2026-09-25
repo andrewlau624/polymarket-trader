@@ -53,7 +53,7 @@ def metrics(path):
     for r in iter_records(path):
         if r.get("kind") == "mark":
             marks.setdefault((r["game"], float(r["line"])), []).append((r["ts"], r["mid"]))
-    out = {"value": [], "rest_hedge": [], "mm": []}
+    out = {"value": [], "rest_hedge": [], "mm": [], "taker_arb": [], "inplay_arb": []}
     for r in iter_records(path):
         k = r.get("kind")
         # CLV against the LADDER's closing mid, not our own ESPN model: judging
@@ -66,8 +66,8 @@ def metrics(path):
             fee = taker_fee(r["px"])
             clv = (p - r["px"] - fee) if r["side"] == "buy" else (r["px"] - p - fee)
             out["value"].extend([clv] * int(r.get("qty", 1)))
-        elif k == "pair_done" and r.get("shares") and r.get("pair_kind") == "rest_hedge":
-            out["rest_hedge"].append(r["credit_net"])
+        elif k == "pair_done" and r.get("shares") and r.get("pair_kind") in out:
+            out[r["pair_kind"]].append(r["credit_net"])
         elif k == "fill" and r.get("strat") == "mm":
             later = [m for ts, m in marks.get((r["game"], float(r["line"])), [])
                      if ts > r["ts"]]
