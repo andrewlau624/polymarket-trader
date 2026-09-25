@@ -36,6 +36,8 @@ def _oid(resp):
     return None
 
 
+PAY_UP_STEP = 0.03       # forced hedge: limit this much past the display per miss
+PAY_UP_MAX = 0.12
 MAX_REPAIRS = 8          # repair orders per group before the game is frozen
 
 
@@ -310,6 +312,17 @@ class Executor:
             self.say(f"    hedge {fol['slug'][-22:]} slipped {slipped:+.3f}; "
                      f"waiting ({age:.0f}/{self.max_naked_min:.0f} min)")
             return
+        # A displayed price an IOC has already missed is not a price. Liberty-
+        # Coastal resent a buy at a listed 0.53 six times (all EXPIRED, 0 filled)
+        # while the market traded 0.645. An IOC fills at the best real offer, so
+        # a higher limit costs nothing when the display is true.
+        misses = sum(1 for r in self._orders(fol)
+                     if r.get("status") == "done" and not r.get("filled"))
+        if misses and (force or age >= self.max_naked_min):
+            step = min(misses * PAY_UP_STEP, PAY_UP_MAX)
+            px = round(min(px + step, 0.999) if side == "buy" else max(px - step, 0.001), 4)
+            self.say(f"    hedge {fol['slug'][-22:]}: {misses} misses at the displayed "
+                     f"price, limit {px:.3f}")
         g["repairs"] = g.get("repairs", 0) + 1
         rec = self.place(g["game"], fol["line"], fol["slug"], side, px, qty,
                          maker=False, strat="hedge", group=g["gid"], leg="follower")

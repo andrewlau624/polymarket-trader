@@ -10,6 +10,7 @@ class FakeVenue:
         self.ids = itertools.count(1)
         self.fail_order_reads = False
         self.placed = []
+        self.real = {}               # slug -> (bids, asks) IOCs match against, if the display lies
 
     def set_book(self, slug, bid=None, ask=None, bid_sz=10, ask_sz=10):
         self.books[slug] = ([(bid, bid_sz)] if bid is not None else [],
@@ -32,13 +33,16 @@ class FakeVenue:
              "maker": maker}
         self.orders[oid] = o
         self.placed.append(o)
-        if not maker:                        # IOC against visible depth
+        if not maker:                        # IOC against visible (or real) depth
+            bids, asks = self.real.get(slug, (bids, asks))
             lvl = asks if side == "buy" else bids
             ok = lvl and ((side == "buy" and lvl[0][0] <= price) or
                           (side == "sell" and lvl[0][0] >= price))
             got = min(qty, int(lvl[0][1])) if ok else 0
             o["cumQuantity"] = got
-            o["state"] = "ORDER_STATE_FILLED" if got == qty else "ORDER_STATE_CANCELED"
+            if got:
+                o["avgPx"] = {"value": str(lvl[0][0])}      # fills at the offer, not the limit
+            o["state"] = "ORDER_STATE_FILLED" if got == qty else "ORDER_STATE_EXPIRED"
         return {"id": oid}
 
     def order(self, oid):

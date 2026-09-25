@@ -133,6 +133,33 @@ def test_suspended_book_is_no_price(env):
     assert st.book(s, G)["pos"]["0.5"] == 5            # hedged once it reopens
 
 
+def test_forced_hedge_pays_up_after_missing_a_stale_display(env):
+    """The display says 0.55; the market is really 0.61. Resending 0.55
+    forever is what happened live. Each miss moves the limit 3c."""
+    store, s, v, ex = env
+    gid, rec = rest_group(ex, v)
+    v.real[S2] = ([(0.59, 10)], [(0.61, 10)])
+    v.fill(rec["oid"], 5)
+    for _ in range(3):
+        ex.manage_groups(force_games={G})
+    buys = [o for o in v.placed if o["marketSlug"] == S2]
+    assert [float(o["price"]["value"]) for o in buys] == [0.55, 0.58, 0.61]
+    assert st.book(s, G)["pos"]["0.5"] == 5
+    fill = ledger(store, "fill")[-1]
+    assert fill["px"] == pytest.approx(0.61)
+
+
+def test_unforced_hedge_does_not_pay_up(env):
+    store, s, v, ex = env
+    gid, rec = rest_group(ex, v)
+    v.real[S2] = ([(0.59, 10)], [(0.61, 10)])
+    v.fill(rec["oid"], 5)
+    ex.manage_groups()
+    ex.manage_groups()
+    buys = [o for o in v.placed if o["marketSlug"] == S2]
+    assert {float(o["price"]["value"]) for o in buys} == {0.55}
+
+
 def test_resting_leader_pulled_when_hedge_moves(env):
     store, s, v, ex = env
     gid, rec = rest_group(ex, v)
