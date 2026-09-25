@@ -800,7 +800,9 @@ def main(argv=None):
     if a.review:
         return review(a)
     os.makedirs("research", exist_ok=True)
-    lock = open(LOCK, "w")
+    # dry runs get their own lock: a long manual dry run once held the shared
+    # lock for 15 minutes and every live cron cycle skipped behind it
+    lock = open(LOCK if a.live else LOCK.replace(".lock", ".dry.lock"), "w")
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)   # dies with the process
     except BlockingIOError:
