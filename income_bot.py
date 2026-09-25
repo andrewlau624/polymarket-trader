@@ -95,26 +95,53 @@ def parse(argv=None):
 
 # ---- inventory -------------------------------------------------------------
 
-def inventory(c):
-    """{base: {line: slug}} from BOTH listings: all_programs() alone hid 500
-    markets, including a ladder the old bot was trading."""
-    from run_ladder import parse_strike
-    slugs = set()
+def all_slugs(c, say=print, page=500, max_pages=20):
+    """Every active market slug, from BOTH listings, with the failures SAID.
+
+    The first version swallowed every exception and returned 0 ladders on the
+    live box with no hint why - the exact silent-failure pattern this rewrite
+    exists to remove. Each source now reports its count or its error.
+    """
+    if getattr(c, "_slug_cache", None) is not None:
+        return c._slug_cache
+    slugs, notes = set(), []
+    got = 0
     try:
-        slugs |= {p["slug"] for p in c.all_programs() if p.get("slug")}
-    except Exception:
-        pass
-    for params in ({}, {"limit": 1000}):
-        try:
-            slugs |= {m.get("marketSlug") or m.get("slug") for m in c.markets(**params)}
-        except Exception:
-            pass
+        for i in range(max_pages):
+            rows = c.markets(limit=page, offset=i * page, active=True, closed=False)
+            batch = {m.get("marketSlug") or m.get("slug") for m in rows or []} - {None}
+            got += len(rows or [])
+            slugs |= batch
+            if len(rows or []) < page:
+                break
+        notes.append(f"markets() {got} rows")
+    except Exception as e:
+        notes.append(f"markets() FAILED {type(e).__name__}: {str(e)[:100]}")
+    try:
+        progs = c.all_programs()
+        n0 = len(slugs)
+        slugs |= {p["slug"] for p in progs if p.get("slug")}
+        notes.append(f"all_programs() {len(progs)} (+{len(slugs) - n0} new)")
+    except Exception as e:
+        notes.append(f"all_programs() FAILED {type(e).__name__}: {str(e)[:100]}")
+    say(f"  inventory: {len(slugs)} slugs | " + " | ".join(notes))
+    c._slug_cache = slugs
+    return slugs
+
+
+def inventory(c, say=print):
+    """{base: {line: slug}} for every spread ladder with 2+ strikes."""
+    from run_ladder import parse_strike
     ladders = {}
-    for sl in slugs - {None}:
+    for sl in all_slugs(c, say):
         base, k = parse_strike(sl)
         if base is not None:
             ladders.setdefault(base, {})[k] = sl
-    return {b: v for b, v in ladders.items() if len(v) >= 2}
+    out = {b: v for b, v in ladders.items() if len(v) >= 2}
+    if not out:
+        sample = sorted(all_slugs(c, say))[:5]
+        say(f"  no ladders parsed. sample slugs: {sample}")
+    return out
 
 
 def moneyline_inventory(c):
@@ -123,13 +150,8 @@ def moneyline_inventory(c):
     refused on any market it disagrees with by 25c, which is what a flipped
     side looks like."""
     from src.pm_us.feed import parse_slug
-    slugs = set()
-    for params in ({}, {"limit": 1000}):
-        try:
-            slugs |= {m.get("marketSlug") or m.get("slug") for m in c.markets(**params)}
-        except Exception:
-            pass
-    return sorted(sl for sl in slugs - {None}
+    slugs = all_slugs(c)
+    return sorted(sl for sl in slugs
                   if sl.startswith("aec-") and parse_slug(sl)
                   and parse_slug(sl)[0] in ("cfb", "nfl"))
 
@@ -355,7 +377,7 @@ class Bot:
         return max(n, 0)
 
     def scan(self):
-        ladders = inventory(self.c)
+        ladders = inventory(self.c, self.say)
         todo = [(b, ks) for b, ks in ladders.items()
                 if within(b, self.a.max_days) and b not in self.s["settled"]
                 and b not in self.s.get("suspect_games", [])]
@@ -536,7 +558,8 @@ class Bot:
         self.lines.max_age = max(self.a.poll - 0.5, 1.0)
         self.tracker = Tracker()
         _load_tracker(self.tracker, self.s.get("tracker"))
-        ladders, moneylines = inventory(self.c), moneyline_inventory(self.c)
+        ladders, moneylines = inventory(self.c, self.say), moneyline_inventory(self.c)
+        self.say(f"  in-play universe: {len(ladders)} ladders, {len(moneylines)} moneylines")
         end = _t.time() + minutes * 60.0
         polls = 0
         while _t.time() < end:
