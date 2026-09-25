@@ -95,7 +95,7 @@ def parse(argv=None):
 
 # ---- inventory -------------------------------------------------------------
 
-def all_slugs(c, say=print, page=500, max_pages=20):
+def all_slugs(c, say=print, page=500, max_pages=200):
     """Every active market slug, from BOTH listings, with the failures SAID.
 
     The first version swallowed every exception and returned 0 ladders on the
@@ -114,6 +114,8 @@ def all_slugs(c, say=print, page=500, max_pages=20):
             slugs |= batch
             if len(rows or []) < page:
                 break
+        else:
+            notes.append(f"!! stopped at the {max_pages}-page cap - listing TRUNCATED")
         notes.append(f"markets() {got} rows")
     except Exception as e:
         notes.append(f"markets() FAILED {type(e).__name__}: {str(e)[:100]}")
@@ -125,6 +127,13 @@ def all_slugs(c, say=print, page=500, max_pages=20):
     except Exception as e:
         notes.append(f"all_programs() FAILED {type(e).__name__}: {str(e)[:100]}")
     say(f"  inventory: {len(slugs)} slugs | " + " | ".join(notes))
+    kinds = {}
+    for sl in slugs:
+        kinds[sl.split("-", 1)[0]] = kinds.get(sl.split("-", 1)[0], 0) + 1
+    say("  by prefix: " + ", ".join(f"{k}={v}" for k, v in
+                                   sorted(kinds.items(), key=lambda kv: -kv[1])[:8])
+        + f" | ladder-shaped (-pos-/-neg-): "
+        f"{sum(1 for sl in slugs if '-pos-' in sl or '-neg-' in sl)}")
     c._slug_cache = slugs
     return slugs
 
