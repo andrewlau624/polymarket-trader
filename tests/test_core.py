@@ -200,3 +200,26 @@ def test_rest_hedge_metric_excludes_taker_arb_pairs(tmp_path):
     append(p, {"kind": "pair_done", "pair_kind": "rest_hedge", "shares": 3,
                "credit_net": 0.01})
     assert metrics(p)["rest_hedge"] == [0.01]
+
+
+def test_unfillable_rest_leg_is_skipped():
+    from income_bot import fillable
+    sig = {"rest_line": 7.5, "rest_side": "sell", "rest_px": 0.189}
+    assert not fillable(sig, {7.5: 0.003}, 0.08)      # Howard +7.5, worth 0.3c
+    assert fillable(sig, {7.5: 0.15}, 0.08)
+    assert fillable(sig, {}, 0.08)                     # no model: cannot judge
+    buy = {"rest_line": 14.5, "rest_side": "buy", "rest_px": 0.066}
+    assert not fillable(buy, {14.5: 0.20}, 0.08)
+
+
+def test_only_football_gets_a_model():
+    from src.income.fairvalue import LineSource
+    ls = LineSource(pause=0)
+    ls.pre_lines["e1"] = (-1.5, 0.55, 0.45, "DK")
+    out = {"event_id": "e1", "_path": "baseball/mlb", "league": "mlb",
+           "ref_is_home": True, "model": None}
+    ls._attach_line(out)
+    assert out["model"] is None
+    out = {**out, "league": "cfb", "model": None}
+    ls._attach_line(out)
+    assert out["model"] is not None

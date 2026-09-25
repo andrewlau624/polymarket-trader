@@ -20,6 +20,12 @@ from src.income.model import MarginModel
 from src.pm_us.feed import SPORT_PATHS, _team_score, match_game, parse_slug, scoreboard
 
 
+# Sports the margin model is calibrated for (key numbers, sigma prior). Other
+# sports still get ESPN state and settlement, so structural arbs can trade
+# them, but no fair value is ever produced for them.
+MODELLED = ("cfb", "nfl")
+
+
 class LineSource:
     """max_age: seconds a scoreboard stays fresh. A one-shot cron run can
     cache for its whole life; the in-play loop needs the score and clock
@@ -73,9 +79,10 @@ class LineSource:
         if spread is None:
             return
         sport = out["league"]
+        if sport not in MODELLED:
+            return                  # a football margin model on MLB runs is nonsense
         p_ref = p_home if out["ref_is_home"] else p_away
-        out["model"] = MarginModel.from_line(spread, p_ref, out["ref_is_home"],
-                                             league=sport if sport in ("cfb", "nfl") else "cfb")
+        out["model"] = MarginModel.from_line(spread, p_ref, out["ref_is_home"], league=sport)
         out["provider"] = prov
         out["spread"] = spread
 

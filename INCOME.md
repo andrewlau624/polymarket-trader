@@ -16,9 +16,22 @@ names the flaw it fixes.
 | Fills inferred from aggregate positions. `positions()` failing ⇒ `{}` ⇒ vanished pairs booked as FILLED. | A fill is the change in **that order's** `cumQuantity`, read by id, priced from cumulative notional. If an order can't be read, nothing is booked. A send that times out is treated as *possibly live*: the intent is kept and the game is **frozen** until reconciled or cleared by hand (`--clear-suspect`). |
 | Non-atomic JSON state. A corrupt file silently became a blank state, forgetting live orders. | Atomic writes (tmp + fsync + rename). A corrupt file is quarantined and the bot refuses to run. Write-ahead intents: a crash between send and id is recovered from open orders, or the game is frozen. |
 | No risk limits. `greeks.py` unused. | **Exact** worst-case P&L per game, over every integer margin (ladders settle on one number, so no approximation is needed). Per-game and book-wide caps shrink orders to fit rather than skipping them. Daily-loss and drawdown halts. Net delta feeds MM skew. |
-| No kill rules, no measurement, 0 tests. | Kill rules registered before any live trading (below). CLV and markout measurement, `--review`, 55 tests (`make test`), including a regression for every finding of an adversarial review of this engine. |
+| No kill rules, no measurement, 0 tests. | Kill rules registered before any live trading (below). CLV and markout measurement, `--review`, 57 tests (`make test`), including a regression for every finding of an adversarial review of this engine. |
 | Traded any ladder, any date. | New risk only on ladders dated today or later **and** confirmed pre-game by ESPN. Without that match there are no kickoff pulls and no automatic settlement, so no new risk is taken. Sub-period ladders are therefore not traded yet. |
 | Dry runs wrote to the live state file. | Dry runs use `income_state.dry.json` / `income_ledger.dry.jsonl`. |
+
+## Capital discipline for resting orders
+
+A resting order locks collateral whether or not it fills (a sell ties up
+1 − price). Two rules keep a slate of stale books from starving live trades:
+
+- resting orders may use at most `--rest-budget` (40%) of `--capital`;
+- a resting leg priced more than `--rest-max-gap` (8c) from fair, against the
+  counterparty, is skipped. Nobody rational fills it: the first dry run wanted
+  to sell Howard +7.5, worth ~0.3c, at 18.9c.
+
+Only football (`cfb`, `nfl`) gets a fair-value model. Other sports on the
+venue (MLB run lines, ...) get structural arbs and ESPN settlement only.
 
 ## Strategies
 

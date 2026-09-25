@@ -56,6 +56,11 @@ def parse(argv=None):
     ap.add_argument("--min-credit", type=float, default=0.005,
                     help="arb credit per share after the fees actually paid")
     ap.add_argument("--max-pair-shares", type=int, default=20)
+    ap.add_argument("--rest-budget", type=float, default=0.4,
+                    help="max fraction of --capital tied up in resting orders")
+    ap.add_argument("--rest-max-gap", type=float, default=0.08,
+                    help="skip a resting leg priced further than this from fair "
+                         "against the counterparty: nobody rational fills it")
     ap.add_argument("--mm-half-spread", type=float, default=0.025)
     ap.add_argument("--mm-size", type=int, default=5)
     ap.add_argument("--mm-max-inv", type=int, default=15)
@@ -247,6 +252,24 @@ def locked_capital(s):
             left = o["qty"] - o.get("filled", 0)
             tot += left * (o["px"] if o["side"] == "buy" else 1.0 - o["px"])
     return tot
+
+
+def resting_capital(s):
+    return sum((o["qty"] - o.get("filled", 0)) *
+               (o["px"] if o["side"] == "buy" else 1.0 - o["px"])
+               for o in s["orders"].values()
+               if o.get("status") == "open" and o.get("maker"))
+
+
+def fillable(sig, fair, max_gap):
+    """Would a rational counterparty ever take our resting price? Selling at
+    18.9c a strike worth 0.3c is a great trade that will never happen, and it
+    ties up 81c of collateral per share while it doesn't."""
+    f = fair.get(sig["rest_line"])
+    if f is None:
+        return True
+    gap = (sig["rest_px"] - f) if sig["rest_side"] == "sell" else (f - sig["rest_px"])
+    return gap <= max_gap
 
 
 def venue_buying_power(c):
@@ -471,6 +494,8 @@ class Bot:
             for sig in rest_hedge(q, self.a.tick, self.a.min_credit):
                 if sig["rest_line"] in busy or sig["hedge_line"] in busy:
                     continue
+                if trust and not fillable(sig, fair, self.a.rest_max_gap):
+                    continue
                 self.do_rest_hedge(base, ks, sig)
         if trust and self.enabled("value"):
             for sig in value_takes(q, fair, self.a.edge_min):
@@ -510,7 +535,10 @@ class Bot:
         self.ex.manage_groups(force_games={base} if live_game else ())
 
     def do_rest_hedge(self, base, ks, sig):
-        n = arb_shares(sig, self.free_capital(), self.a.max_pair_shares)
+        # resting orders lock collateral whether or not they fill; cap them so
+        # a slate of stale books cannot starve the trades that execute now
+        room = self.a.rest_budget * self.a.capital - resting_capital(self.s)
+        n = arb_shares(sig, min(self.free_capital(), room), self.a.max_pair_shares)
         if n < 1:
             return
         rs, rp, hl, hs, hp = (sig["rest_side"], sig["rest_px"], sig["hedge_line"],
