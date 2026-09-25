@@ -159,8 +159,12 @@ class Executor:
         state = o.get("state")
         if state:
             rec["venue_state"] = state
-        if state in TERMINAL:
+        if state in TERMINAL and rec.get("status") != "done":
             rec["status"] = "done"
+            # state drops finished orders; this is the only record of HOW one ended
+            self.store.log("order_done", oid=rec["oid"], game=rec["game"],
+                           strat=rec.get("strat"), state=state, filled=rec.get("filled", 0),
+                           qty=rec["qty"], px=rec["px"])
         return rec
 
     def cancel(self, rec):
