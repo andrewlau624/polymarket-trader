@@ -17,6 +17,7 @@ cd "$(dirname "$0")" || exit 1
 PY="$PWD/.venv/bin/python"
 LOG="$PWD/income.log"
 set -a; . /etc/pm-us.env 2>/dev/null || true; set +a
+export PYTHONUNBUFFERED=1     # income.log shows each line as it happens, not at exit
 
 if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 8000000 ]; then
   mv -f "$LOG" "$LOG.1"
