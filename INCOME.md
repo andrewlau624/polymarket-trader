@@ -92,6 +92,11 @@ and market type, with a CI bootstrapped over games. The GO bar was set before
 any data came in: n >= 300 settled positions, >= 60 games, and the best
 exit's whole 95% CI above 0. It has no live path. `--no-favs` turns it off.
 
+The same pass tracks **longshots** (0.001-0.05, ~1,900 sides across ~135
+games on a typical listing), cashing out at 2x / 5x entry or holding. The
+global tape says they are the most overpriced thing on the board; this is
+the US-venue check. Same GO bar, judged separately.
+
 ## Pre-registered kill rules (`src/income/risk.py`)
 
 Written before any live result. A tripped rule cancels that strategy's orders.

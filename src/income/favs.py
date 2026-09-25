@@ -1,4 +1,4 @@
-"""Favourites, on paper: does buying 0.85-0.96 contracts pay on THIS venue?
+"""Favourites and longshots, on paper: does either end of the board pay HERE?
 
 The idea under test: markets that price one side at 85-96c, days before the
 game, drift toward 99c often enough that small bets on all of them - held to
@@ -21,6 +21,10 @@ Every position records BOTH exits, so one sample answers both questions:
   target   first time the exit price (bid for long, 1 - ask for short) reached
            0.97 / 0.98 / 0.99: target - entry - both fees; else the hold result
 
+Longshots (band "long", 0.001-0.05) are the mirror question: the 1000-to-1
+tickets. The global tape says they are the most overpriced thing on the board;
+this checks the US venue. Their targets are multiples of entry (2x, 5x).
+
 Marks are 30 minutes apart, so a target touched and lost between two
 listings is missed. That biases the target exits DOWN, never up.
 """
@@ -36,7 +40,8 @@ from src.pm_us.jsonlog import append
 PATH = os.path.join("research", "favs.json")
 LEDGER = os.path.join("research", "favs.jsonl")
 
-LO, HI = 0.85, 0.96
+BANDS = {"fav": (0.85, 0.96), "long": (0.001, 0.05)}
+LO, HI = BANDS["fav"]
 MAX_SPREAD = 0.03           # wider than this, the listed ask is not a real price
 MAX_HOURS = 168.0           # game starts within a week; futures take months
 TARGETS = (0.97, 0.98, 0.99)
@@ -82,16 +87,28 @@ def hours_to(iso, now):
     return (t - now).total_seconds() / 3600.0
 
 
-def in_band(bid, ask, lo=LO, hi=HI):
-    """[(side, entry px)] for each favourite side of one market."""
+def in_band(bid, ask, bands=BANDS):
+    """[(band, side, entry px)] for each side of one market inside a band."""
     out = []
     if ask - bid > MAX_SPREAD + 1e-9:
         return out
-    if lo <= ask <= hi:
-        out.append(("long", ask))
-    if lo <= 1.0 - bid <= hi:
-        out.append(("short", round(1.0 - bid, 6)))
+    for band, (lo, hi) in bands.items():
+        if lo <= ask <= hi:
+            out.append((band, "long", ask))
+        if lo <= round(1.0 - bid, 6) <= hi:
+            out.append((band, "short", round(1.0 - bid, 6)))
     return out
+
+
+def targets_for(band, px):
+    """{name: exit price}. Favourites cash out near 1; longshots at a multiple."""
+    if band == "long":
+        return {f"{m}x": round(m * px, 4) for m in (2, 5) if m * px < 1.0}
+    return {str(t): t for t in TARGETS}
+
+
+def pos_key(slug, side, band):
+    return f"{slug}|{side}" if band == "fav" else f"{slug}|{side}|{band}"
 
 
 def exit_px(side, bid, ask):
@@ -129,19 +146,21 @@ def screen(d, quotes, now, log=None):
         h = hours_to(start, now)
         if h is None or not 0 < h <= MAX_HOURS:
             continue                        # started, or too far out
-        for side, px in in_band(bid, ask):
-            key = f"{slug}|{side}"
+        for band, side, px in in_band(bid, ask):
+            key = pos_key(slug, side, band)
             if key in d["seen"]:
                 continue
             d["seen"][key] = today
             pos = {"slug": slug, "side": side, "px": px, "t": now.isoformat(),
                    "hours": round(h, 2), "type": t, "game": game_key(slug),
-                   "spread": round(ask - bid, 4), "low": px, "hits": {}}
+                   "spread": round(ask - bid, 4), "low": px, "hits": {},
+                   "band": band, "targets": targets_for(band, px)}
             d["open"][key] = pos
             n += 1
             if log:
                 log("fav_open", **{k: pos[k] for k in
-                                   ("slug", "side", "px", "hours", "type", "game", "spread")})
+                                   ("slug", "side", "px", "hours", "type", "game",
+                                    "spread", "band")})
     return n
 
 
@@ -153,9 +172,14 @@ def mark(d, quotes, now):
             continue
         v = exit_px(pos["side"], q[2], q[3])
         pos["low"] = min(pos.get("low", pos["px"]), v)
-        for tg in TARGETS:
-            if v >= tg and str(tg) not in pos["hits"]:
-                pos["hits"][str(tg)] = now.isoformat()
+        for name, tg in _targets(pos).items():
+            if v >= tg - 1e-9 and name not in pos["hits"]:
+                pos["hits"][name] = now.isoformat()
+
+
+def _targets(pos):
+    # positions opened before bands existed are favourites
+    return pos.get("targets") or targets_for("fav", pos["px"])
 
 
 def result(pos, settlement):
@@ -164,10 +188,9 @@ def result(pos, settlement):
     px = pos["px"]
     hold = payout - px - taker_fee(px)
     out = {"payout": round(payout, 4), "hold": round(hold, 5)}
-    for tg in TARGETS:
-        hit = str(tg) in pos["hits"]
-        out[f"x{tg}"] = round(tg - px - taker_fee(px) - taker_fee(tg), 5) if hit \
-            else round(hold, 5)
+    for name, tg in _targets(pos).items():
+        out[f"x{name}"] = round(tg - px - taker_fee(px) - taker_fee(tg), 5) \
+            if name in pos["hits"] else round(hold, 5)
     return out
 
 
@@ -218,8 +241,9 @@ def resolve(d, active, settle_fn, now, log=None, budget=SETTLE_PER_RUN):
 
 
 def _rec(pos):
-    return {k: pos[k] for k in ("slug", "side", "px", "hours", "type", "game",
-                                "spread", "low", "hits")}
+    return {**{k: pos[k] for k in ("slug", "side", "px", "hours", "type", "game",
+                                   "spread", "low", "hits")},
+            "band": pos.get("band", "fav")}
 
 
 def prune(d, now):
@@ -251,5 +275,6 @@ def cycle(listing_ts, quotes, active, settle_fn, say=print, path=PATH, ledger=LE
     prune(d, now)
     d["listing_ts"] = listing_ts
     save(d, path)
-    say(f"  favs (PAPER): +{opened} opened, {closed} settled, {len(d['open'])} open")
+    say(f"  favs+longshots (PAPER): +{opened} opened, {closed} settled, "
+        f"{len(d['open'])} open")
     return opened, closed

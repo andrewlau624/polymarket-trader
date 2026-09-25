@@ -26,10 +26,29 @@ def test_quote_row_skips_futures_and_one_sided_books():
 
 
 def test_in_band_finds_the_favourite_on_either_side():
-    assert favs.in_band(0.91, 0.92) == [("long", 0.92)]
-    assert favs.in_band(0.08, 0.09) == [("short", 0.92)]       # other side at 1 - bid
+    assert favs.in_band(0.91, 0.92) == [("fav", "long", 0.92)]
+    assert favs.in_band(0.08, 0.09) == [("fav", "short", 0.92)]   # other side at 1 - bid
     assert favs.in_band(0.50, 0.51) == []
     assert favs.in_band(0.80, 0.92) == []                      # 12c wide: not a price
+
+
+def test_longshots_are_their_own_band_with_multiple_targets():
+    assert favs.in_band(0.01, 0.02) == [("long", "long", 0.02)]
+    assert favs.in_band(0.98, 0.985) == [("long", "short", 0.02)]
+    assert favs.targets_for("long", 0.02) == {"2x": 0.04, "5x": 0.1}
+    d = favs.fresh()
+    favs.screen(d, {"a": ["props", SOON, 0.01, 0.02]}, NOW)
+    p = d["open"]["a|long|long"]
+    favs.mark(d, {"a": ["props", SOON, 0.05, 0.06]}, NOW)
+    assert set(p["hits"]) == {"2x"}
+    r = favs.result(p, 0.0)
+    assert r["x2x"] == pytest.approx(0.04 - 0.02 - taker_fee(0.02) - taker_fee(0.04), abs=1e-5)
+    assert r["x5x"] == r["hold"] == pytest.approx(-0.02 - taker_fee(0.02), abs=1e-5)
+
+
+def test_positions_from_before_bands_grade_as_favourites():
+    old = {"side": "long", "px": 0.92, "hits": {"0.98": "t"}}     # no band / targets
+    assert set(favs.result(old, 1.0)) == {"payout", "hold", "x0.97", "x0.98", "x0.99"}
 
 
 def test_game_key_clusters_props_with_their_game():
