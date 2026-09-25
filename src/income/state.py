@@ -86,6 +86,19 @@ def book(s, game):
     return s["books"].setdefault(game, {"pos": {}, "cash": 0.0})
 
 
+def peek_book(s, game):
+    """book() for READING: looking at a game must not open a book for it.
+    Scans used to, and every scanned game then counted as open, was looked
+    up on ESPN every cycle and 'settled' at $0."""
+    return s["books"].get(game) or {"pos": {}, "cash": 0.0}
+
+
+def open_books(s):
+    """Unsettled books that hold something."""
+    return {g: b for g, b in s["books"].items()
+            if g not in s["settled"] and (any(b["pos"].values()) or abs(b["cash"]) > 1e-9)}
+
+
 def book_pos(b):
     return {float(k): v for k, v in b["pos"].items() if v}
 

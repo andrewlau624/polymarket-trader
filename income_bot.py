@@ -80,6 +80,8 @@ def parse(argv=None):
                     help="after managing, day-trade live games for N minutes "
                          "(inplay_arb live, divergence on paper)")
     ap.add_argument("--poll", type=float, default=5.0, help="in-play poll seconds")
+    ap.add_argument("--no-favs", dest="favs", action="store_false",
+                    help="skip the favourites paper tracker (src/income/favs.py)")
     ap.add_argument("--reset-kill", default="", help="clear a tripped kill rule")
     ap.add_argument("--clear-suspect", default="",
                     help="unfreeze a game after checking venue positions by hand")
@@ -114,6 +116,7 @@ def all_slugs(c, say=print, page=500, max_pages=200, ttl=1800):
     """
     if getattr(c, "_slug_cache", None) is not None:
         return c._slug_cache
+    from src.income.favs import quote_row
     # the full listing is ~150 pages; a 5-minute cron run must not pay that
     # every time. The market list changes slowly - new games are listed days out.
     import json as _j
@@ -123,10 +126,13 @@ def all_slugs(c, say=print, page=500, max_pages=200, ttl=1800):
             cached = _j.load(fh)
         if _t.time() - cached["ts"] < ttl and cached["slugs"]:
             c._slug_cache = set(cached["slugs"])
+            c._quotes, c._listing_ts = cached.get("quotes", {}), cached["ts"]
+            c._complete = bool(cached.get("complete"))
             return c._slug_cache
     except (OSError, ValueError, KeyError):
         pass
     slugs, notes = set(), []
+    quotes, listing_ok = {}, False     # slug -> [type, start, bid, ask], for favs.py
     got = 0
     try:
         for i in range(max_pages):
@@ -134,7 +140,12 @@ def all_slugs(c, say=print, page=500, max_pages=200, ttl=1800):
             batch = {m.get("marketSlug") or m.get("slug") for m in rows or []} - {None}
             got += len(rows or [])
             slugs |= batch
+            for m in rows or []:
+                q = quote_row(m)
+                if q and (m.get("marketSlug") or m.get("slug")):
+                    quotes[m.get("marketSlug") or m.get("slug")] = q
             if len(rows or []) < page:
+                listing_ok = True
                 break
         else:
             notes.append(f"!! stopped at the {max_pages}-page cap - listing TRUNCATED")
@@ -149,10 +160,15 @@ def all_slugs(c, say=print, page=500, max_pages=200, ttl=1800):
     except Exception as e:
         notes.append(f"all_programs() FAILED {type(e).__name__}: {str(e)[:100]}")
     say(f"  inventory: {len(slugs)} slugs | " + " | ".join(notes))
+    # a partial listing must not look like "these markets closed": favs.py
+    # would go looking for settlements of markets that are still open
+    c._quotes, c._listing_ts = (quotes if listing_ok else {}), _t.time()
+    c._complete = listing_ok
     if slugs:
         tmp = INV_CACHE + ".tmp"
         with open(tmp, "w") as fh:
-            _j.dump({"ts": _t.time(), "slugs": sorted(slugs)}, fh)
+            _j.dump({"ts": c._listing_ts, "slugs": sorted(slugs),
+                     "quotes": c._quotes, "complete": listing_ok}, fh)
         os.replace(tmp, INV_CACHE)
     kinds = {}
     for sl in slugs:
@@ -325,7 +341,7 @@ class Bot:
         would happily sell you the loser).
         """
         self.ex.reconcile()
-        active = {g for g, b in self.s["books"].items() if g not in self.s["settled"]}
+        active = set(st.open_books(self.s))
         active |= {o["game"] for o in self.ex.open_orders()}
         active |= {g["game"] for g in self.s["groups"].values()}
         infos = {g: self.lines.game(g) for g in sorted(active)}
@@ -364,7 +380,7 @@ class Bot:
         if m:
             self.store.log("fair", game=game, state="pre", mu=m.mu, sigma=m.sigma,
                            league=m.league, provider=info.get("provider"))
-        held = [float(k) for k, v in st.book(self.s, game)["pos"].items() if v]
+        held = [float(k) for k, v in st.peek_book(self.s, game)["pos"].items() if v]
         slugs = self.slugs.get(game, {})
         for L in held:
             if str(L) not in slugs:
@@ -406,7 +422,7 @@ class Bot:
         and again with every open sell filled, and must pass both. Checking
         each resting order alone let two 5-lot sells through a $2 cap.
         """
-        b = st.book(self.s, game)
+        b = st.peek_book(self.s, game)
         resting = [(o["line"], o["side"], o["px"], o["qty"] - o.get("filled", 0), 0.0)
                    for o in self.ex.open_orders(game) if o["qty"] > o.get("filled", 0)]
         ok, why = True, ""
@@ -471,7 +487,7 @@ class Bot:
             self.store.log("fair", game=base, state=state, mu=model.mu,
                            sigma=model.sigma, league=model.league,
                            provider=info.get("provider"))
-            held = {float(k) for k, v in st.book(self.s, base)["pos"].items() if v}
+            held = {float(k) for k, v in st.peek_book(self.s, base)["pos"].items() if v}
             for L in held & set(q):
                 if q[L]["bid"] is not None and q[L]["ask"] is not None:
                     self.store.log("mark", game=base, line=L,
@@ -569,7 +585,7 @@ class Bot:
             self.s["groups"].pop(gid)      # cleanly rejected; uncertain -> reconcile
 
     def do_value(self, base, ks, sig):
-        held = st.book_pos(st.book(self.s, base)).get(sig["line"], 0)
+        held = st.book_pos(st.peek_book(self.s, base)).get(sig["line"], 0)
         if (held > 0 and sig["side"] == "buy") or (held < 0 and sig["side"] == "sell"):
             return            # already on; re-buying the same view each cycle compounds it
         bankroll = min(self.a.capital, self.free_capital() + locked_capital(self.s))
@@ -587,7 +603,7 @@ class Bot:
 
     def do_mm(self, base, ks, q, fair, model):
         from src.pm_us.greeks import book_risk
-        pos = st.book_pos(st.book(self.s, base))
+        pos = st.book_pos(st.peek_book(self.s, base))
         nd = book_risk(pos, model.mu, model.sigma)[0]["delta"] if pos else 0.0
         want = mm_quotes(q, fair, self.a.mm_half_spread, skew_per_delta=0.002,
                          net_delta=nd, tick=self.a.tick)
@@ -617,9 +633,34 @@ class Bot:
                     slot[side] = r["oid"]
 
 
+    # ---- favourites (paper) ---------------------------------------------
+    def favs(self):
+        """Screen, mark and grade favourites off the listing. Paper only, and
+        a no-op except on the one run per 30 minutes that refreshes it. Dry
+        runs keep their own files so they never double-count a live listing."""
+        import time as _t
+        from src.income import favs
+        sfx = "" if self.a.live else ".dry"
+
+        def settle(slug):
+            _t.sleep(0.25)                  # the public endpoint 429s fast
+            return self.c.settlement(slug)
+        try:
+            all_slugs(self.c, self.say)
+            favs.cycle(getattr(self.c, "_listing_ts", 0.0),
+                       getattr(self.c, "_quotes", {}),
+                       self.c._slug_cache if getattr(self.c, "_complete", False) else None,
+                       settle, say=self.say,
+                       path=favs.PATH.replace(".json", f"{sfx}.json"),
+                       ledger=favs.LEDGER.replace(".jsonl", f"{sfx}.jsonl"))
+        except Exception as e:              # paper research never stops trading
+            self.say(f"  favs FAILED {type(e).__name__}: {str(e)[:120]}")
+
     # ---- in-play ---------------------------------------------------------
     def inplay_loop(self, minutes):
-        """Day-trade live games until `minutes` elapse or none are live."""
+        """Day-trade live games until `minutes` after PROCESS START, or none
+        are live. Counting from here instead let a 65s listing refresh push a
+        3.8-minute window past cron's 290s timeout, killing it mid-game."""
         import time as _t
         from src.income.inplay import Tracker
         self.lines.max_age = max(self.a.poll - 0.5, 1.0)
@@ -627,7 +668,7 @@ class Bot:
         _load_tracker(self.tracker, self.s.get("tracker"))
         ladders, moneylines = inventory(self.c, self.say), moneyline_inventory(self.c)
         self.say(f"  in-play universe: {len(ladders)} ladders, {len(moneylines)} moneylines")
-        end = _t.time() + minutes * 60.0
+        end = getattr(self, "t0", _t.time()) + minutes * 60.0
         polls = 0
         while _t.time() < end:
             t0 = _t.time()
@@ -789,13 +830,15 @@ def review(args):
              if r.get("kind") == "paper_close" and r.get("pnl") is not None]
     ok, detail = go_status(trips)
     print(f"\n  divergence (PAPER) go/no-go: {'GO' if ok else 'not yet'}  {detail}")
-    print(f"\n  realized ${s['realized']:+.2f} | open books "
-          f"{len([g for g in s['books'] if g not in s['settled']])} | "
+    ob = st.open_books(s)
+    print(f"\n  realized ${s['realized']:+.2f} | open books {len(ob)} | "
           f"groups {len(s['groups'])} | worst case "
-          f"${sum(worst_case(st.book_pos(b), b['cash']) for g, b in s['books'].items() if g not in s['settled']):+.2f}")
+          f"${sum(worst_case(st.book_pos(b), b['cash']) for b in ob.values()):+.2f}")
 
 
 def main(argv=None):
+    import time as _t
+    t0 = _t.time()
     a = parse(argv)
     if a.review:
         return review(a)
@@ -827,6 +870,7 @@ def main(argv=None):
     from src.pm_us.client import UsClient
     c = UsClient()
     bot = Bot(a, c, store, s, LineSource())
+    bot.t0 = t0
     if a.settle:
         game, margin = a.settle.rsplit(":", 1)
         bot.ex.settle(game, int(margin))
@@ -837,12 +881,14 @@ def main(argv=None):
         if not a.manage_only:
             bot.scan()
             bot.ex.manage_groups()
+        if a.favs:
+            bot.favs()
         if a.inplay_minutes > 0:
             bot.inplay_loop(a.inplay_minutes)
     finally:
         store.save(s)
         c.close()
-    b = [bb for g, bb in s["books"].items() if g not in s["settled"]]
+    b = list(st.open_books(s).values())
     print(f"  done | realized ${s['realized']:+.2f} | open games {len(b)} | "
           f"worst case ${sum(worst_case(st.book_pos(x), x['cash']) for x in b):+.2f} | "
           f"locked ${locked_capital(s):.2f}")

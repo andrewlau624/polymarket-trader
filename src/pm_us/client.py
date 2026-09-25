@@ -101,6 +101,10 @@ class UsClient:
         ba = px(b.get("bestAsk"))
         return bb, ba, bids, asks
 
+    def settlement(self, slug):
+        """{'slug', 'settlement'} once resolved; raises NotFound while open."""
+        return self._retry(lambda: self.c.markets.settlement(slug))
+
     def book_levels(self, slug):
         """Normalized (bids, asks) as best-first (price, qty) lists."""
         b = self.book(slug)

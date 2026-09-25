@@ -77,6 +77,21 @@ Raw observations (every 30 s per live game: book, fair, score, tau) go to
 `research/inplay_obs.jsonl`. That is the full-game capture §4 always needed,
 for studying gap persistence offline.
 
+## Favourites, on paper (`src/income/favs.py`)
+
+The question: do contracts priced 0.85-0.96 before the game pay after fees,
+held to settlement or cashed out at 0.97 / 0.98 / 0.99? Every cycle that
+refreshes the market listing (once per 30 min) screens it, marks every open
+position, and grades the ones whose market has closed using the venue's own
+`settlement`. That covers props, totals and fights too. No extra book reads:
+the listing's bestBid/bestAsk matched the book on every spot check. On the
+first listing that was ~3,300 positions across ~200 games.
+
+`make favs` prints win rate vs price and P&L per exit, by price, time to game
+and market type, with a CI bootstrapped over games. The GO bar was set before
+any data came in: n >= 300 settled positions, >= 60 games, and the best
+exit's whole 95% CI above 0. It has no live path. `--no-favs` turns it off.
+
 ## Pre-registered kill rules (`src/income/risk.py`)
 
 Written before any live result. A tripped rule cancels that strategy's orders.
