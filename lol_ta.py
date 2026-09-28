@@ -181,8 +181,8 @@ def main():
               + (f"  CI [{lo:+.4f}, {hi:+.4f}]" if lo is not None else "")
               + f"  halves {mean(h1):+.4f} / {mean(h2):+.4f}"
               + ("  <- PASSES" if ok else ""))
-    cost = [taker_fee(x[1]) + taker_fee(x[0]) + (x[1] - x[0])
-            for pts in gp.values() for x in pts]
+    cost = [taker_fee(ask) + taker_fee(bid) + (ask - bid)       # pts are (t, bid, ask)
+            for pts in gp.values() for _t, bid, ask in pts]
     if cost:
         print(f"\n  a round trip here costs {mean(cost):.4f}/share on average "
               f"(both fees + the spread); that is the bar every signal must clear")

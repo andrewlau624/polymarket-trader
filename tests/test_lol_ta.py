@@ -50,3 +50,5 @@ def test_run_on_a_file(tmp_path, capsys):
     ta.main()
     out = capsys.readouterr().out
     assert "1 games" in out and "round trip here costs" in out
+    cost = float(out.split("costs ")[1].split("/share")[0])
+    assert 0.02 < cost < 0.06                      # two ~1.7c fees + a 1c spread
