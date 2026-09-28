@@ -119,10 +119,13 @@ def main(argv=None):
     days = {now.date().isoformat(),
             datetime.fromtimestamp(time.time() - 86400, timezone.utc).date().isoformat()}
     events = venue_events(listing_slugs(c, say), days)
+    stamp = f"lol_recorder | {now.isoformat()[:19]} |"
     if not events:
+        say(f"{stamp} venue lists no LoL match today")     # one line per run: cron is alive
         return 0
     live = L.live_matches()
     if not live:
+        say(f"{stamp} venue LoL events {len(events)}, none live on Riot")
         return 0
     details = [L.match_detail(m["match_id"]) for m in live]
     try:
@@ -136,7 +139,7 @@ def main(argv=None):
         if pair:
             tracked[ev] = {**v, "detail": pair[0], "A": pair[1], "B": pair[2],
                            "start": {}, "fb": {}}
-    say(f"lol_recorder | {now.isoformat()[:19]} | venue LoL events {len(events)}, "
+    say(f"{stamp} venue LoL events {len(events)}, "
         f"live on Riot {len(live)}, paired {len(tracked)}"
         + (f": {', '.join(tracked)}" if tracked else ""))
     if not tracked:
