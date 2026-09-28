@@ -126,7 +126,9 @@ def latency(recs):
 def series_by_game(recs):
     out = defaultdict(list)
     for r in recs:
-        k = f"map:{r['game']}"
+        # in a best-of-1 the match market IS the game market
+        k = "match" if r.get("best_of") == 1 or f"map:{r['game']}" not in r["q"] \
+            and r.get("best_of") in (None, 1) else f"map:{r['game']}"
         m = _mid(r["q"].get(k))
         if r.get("model_p") is None or m is None:
             continue

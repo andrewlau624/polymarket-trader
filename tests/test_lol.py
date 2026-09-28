@@ -139,3 +139,14 @@ def test_report_finds_the_stale_prop_the_lag_and_the_swing(tmp_path, capsys):
     assert "stayed stale median 6s" in out          # polls at 200, 203, 206
     assert "market LAGS the feed" in out
     assert trades and trades[0][60] > 0                 # bought 0.51, sold 0.69
+
+
+def test_best_of_one_uses_the_match_market(tmp_path, capsys):
+    fp, rows = _obs(tmp_path)
+    for r in rows:
+        r["best_of"] = 1
+        r["q"]["match"] = r["q"].pop("map:1")
+    (tmp_path / "bo1.jsonl").write_text("\n".join(json.dumps(r) for r in rows))
+    recs = list(rep.iter_records(str(tmp_path / "bo1.jsonl")))
+    trades, _ = rep.swings(recs)
+    assert trades and trades[0][60] > 0
