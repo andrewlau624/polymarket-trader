@@ -115,15 +115,73 @@ def match_detail(match_id):
             "best_of": (m.get("strategy") or {}).get("count"), "teams": teams, "games": games}
 
 
-def pair_event(a, b, details):
-    """The live Riot match whose team codes are the slug's (a, b), with A first."""
+def scheduled_matches(now=None, back_h=4.0, ahead_h=0.5):
+    """Riot matches that started recently or start soon, by the SCHEDULE.
+
+    getLive is not enough: on 2026-09-28 it showed EMEA Masters as one 'show'
+    with no match ids, and the schedule still said 'unstarted' for games whose
+    feed was streaming frames. So the schedule picks candidates and the feed
+    itself (live_game) decides what is live."""
+    now = now or datetime.now(timezone.utc)
+    out = []
+    for e in (_get("getSchedule").get("schedule", {}).get("events") or []):
+        m = e.get("match") or {}
+        st = _ts(e.get("startTime"))
+        if not m.get("id") or not st or e.get("state") == "completed":
+            continue
+        if now - timedelta(hours=back_h) <= st <= now + timedelta(hours=ahead_h):
+            out.append({"match_id": m["id"], "start": e.get("startTime"),
+                        "codes": [(t.get("code") or "").lower() for t in m.get("teams") or []]})
+    return out
+
+
+def live_game(detail):
+    """The game the feed is streaming now: (game, first frame ts) or (None, None).
+    Asks the feed, not the schedule's game state."""
+    for g in sorted(detail["games"], key=lambda x: -(x["n"] or 0)):
+        if g["state"] == "completed" or not g.get("id"):
+            continue
+        fr, _ = latest_frame(g["id"])
+        if fr and fr.get("gameState") in ("in_game", "paused"):
+            return g, first_ts(g["id"])
+    return None, None
+
+
+def code_score(tok, code):
+    """How well a venue slug token names a Riot team code. The venue writes
+    'tos' for Riot's OTS and 'hmble' for HMB, so exact match is not enough."""
+    tok, code = (tok or "").lower(), (code or "").lower()
+    if not tok or not code:
+        return 0
+    if tok == code:
+        return 4
+    if sorted(tok) == sorted(code):
+        return 3                                  # tos / ots
+    if tok.startswith(code) or code.startswith(tok):
+        return 2                                  # hmble / hmb
+    it = iter(tok)
+    if len(code) >= 2 and all(ch in it for ch in code):
+        return 1
+    return 0
+
+
+def pair_event(a, b, details, start=None, max_gap_h=2.0):
+    """The Riot match for a venue event: both teams must score, orientation
+    by best total, and (when the venue gives one) the start within max_gap_h."""
+    best = None
     for d in details:
-        codes = [t["code"] for t in d["teams"]]
-        if a in codes and b in codes:
-            ta = next(t for t in d["teams"] if t["code"] == a)
-            tb = next(t for t in d["teams"] if t["code"] == b)
-            return d, ta, tb
-    return None
+        if len(d["teams"]) != 2:
+            continue
+        if start and d.get("start"):
+            gap = abs((_ts(start) - _ts(d["start"])).total_seconds()) / 3600
+            if gap > max_gap_h:
+                continue
+        t0, t1 = d["teams"]
+        for ta, tb in ((t0, t1), (t1, t0)):
+            sa, sb = code_score(a, ta["code"]), code_score(b, tb["code"])
+            if sa and sb and (best is None or sa + sb > best[0]):
+                best = (sa + sb, d, ta, tb)
+    return best[1:] if best else None
 
 
 def _window(game_id, starting=None):

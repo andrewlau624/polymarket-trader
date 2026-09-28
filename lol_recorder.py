@@ -50,14 +50,17 @@ def venue_events(slugs, today):
     return out
 
 
-def listing_slugs(c, say):
+def listing(c, say):
+    """(slugs, quotes) from the income bot's listing cache; quotes carry each
+    market's gameStartTime, which pairing uses."""
     try:
         with open(INV_CACHE) as fh:
-            return set(json.load(fh)["slugs"])
+            d = json.load(fh)
+        return set(d["slugs"]), d.get("quotes") or {}
     except (OSError, ValueError, KeyError):
         pass
     from income_bot import all_slugs                 # no cache yet: build one
-    return all_slugs(c, say)
+    return all_slugs(c, say), getattr(c, "_quotes", {}) or {}
 
 
 def names_b_side(c, slug, a_name, b_name, meta):
@@ -118,30 +121,44 @@ def main(argv=None):
     now = datetime.now(timezone.utc)
     days = {now.date().isoformat(),
             datetime.fromtimestamp(time.time() - 86400, timezone.utc).date().isoformat()}
-    events = venue_events(listing_slugs(c, say), days)
+    slugs, quotes = listing(c, say)
+    events = venue_events(slugs, days)
     stamp = f"lol_recorder | {now.isoformat()[:19]} |"
     if not events:
         say(f"{stamp} venue lists no LoL match today")     # one line per run: cron is alive
         return 0
-    live = L.live_matches()
-    if not live:
-        say(f"{stamp} venue LoL events {len(events)}, none live on Riot")
+    sched = L.scheduled_matches(now)
+    if not sched:
+        say(f"{stamp} venue LoL events {len(events)}, nothing on Riot's schedule now")
         return 0
-    details = [L.match_detail(m["match_id"]) for m in live]
+    details = []
+    for m in sched:
+        try:
+            details.append({**L.match_detail(m["match_id"]), "start": m["start"]})
+        except Exception:
+            continue
     try:
         meta = json.load(open(META))
     except (OSError, ValueError):
         meta = {}
 
-    tracked = {}
+    tracked, unpaired, idle = {}, [], []
     for ev, v in events.items():
-        pair = L.pair_event(v["a"], v["b"], details)
-        if pair:
-            tracked[ev] = {**v, "detail": pair[0], "A": pair[1], "B": pair[2],
-                           "start": {}, "fb": {}}
-    say(f"{stamp} venue LoL events {len(events)}, "
-        f"live on Riot {len(live)}, paired {len(tracked)}"
-        + (f": {', '.join(tracked)}" if tracked else ""))
+        start = (quotes.get(v["markets"].get(("match",), "")) or [None, None])[1]
+        pair = L.pair_event(v["a"], v["b"], details, start=start)
+        if not pair:
+            unpaired.append(ev)
+            continue
+        g, s0 = L.live_game(pair[0])
+        if not g:
+            idle.append(ev)
+            continue
+        tracked[ev] = {**v, "detail": pair[0], "A": pair[1], "B": pair[2],
+                       "game": g, "start": {g["id"]: s0}, "fb": {}}
+    say(f"{stamp} venue LoL events {len(events)}, on Riot's schedule {len(details)}, "
+        f"paired+live {len(tracked)}, paired not live {len(idle)}, unpaired {len(unpaired)}"
+        + (f" | recording: {', '.join(tracked)}" if tracked else "")
+        + (f" | unpaired: {', '.join(unpaired[:6])}" if unpaired else ""))
     if not tracked:
         return 0
 
@@ -149,18 +166,25 @@ def main(argv=None):
     while time.time() < t_end:
         t0 = time.time()
         for ev, T in tracked.items():
-            if polls % 10 == 0:                  # series score moves once a game
+            if polls and polls % 10 == 0:        # series score moves once a game
                 try:
-                    d = L.match_detail(T["detail"]["match_id"])
+                    d = {**L.match_detail(T["detail"]["match_id"]),
+                         "start": T["detail"].get("start")}
                     T["detail"] = d
                     T["A"] = next(t for t in d["teams"] if t["id"] == T["A"]["id"])
                     T["B"] = next(t for t in d["teams"] if t["id"] == T["B"]["id"])
+                    g2, s2 = L.live_game(d)       # the feed says which game is on
+                    if g2:
+                        T["game"] = g2
+                        T["start"].setdefault(g2["id"], s2)
                 except Exception:
                     pass
             wa, wb = T["A"]["wins"], T["B"]["wins"]
-            game_n = wa + wb + 1
-            g = next((x for x in T["detail"]["games"]
-                      if x["state"] == "inProgress"), None)
+            g = T["game"]
+            game_n = g["n"] or wa + wb + 1
+            # Riot's series score lags or never updates for some leagues; the
+            # arb needs it right, so it only runs when it agrees with the game number
+            wins_ok = wa + wb == game_n - 1
             st, mp = None, None
             if g:
                 if g["id"] not in T["start"]:
@@ -195,7 +219,7 @@ def main(argv=None):
             roles = [r for r in T["markets"] if r[0] in ("match", "map", "over", "hcap")
                      and L.role_key(r) in q and not (r[0] == "map" and r[1] < game_n)]
             res = None
-            if roles and T["detail"].get("best_of") in (3, 5):
+            if roles and wins_ok and T["detail"].get("best_of") in (3, 5):
                 rq = [tuple(q[L.role_key(r)][:4]) for r in roles
                       if q[L.role_key(r)][4] in (None, "MARKET_STATE_OPEN")]
                 rr = [r for r in roles if q[L.role_key(r)][4] in (None, "MARKET_STATE_OPEN")]

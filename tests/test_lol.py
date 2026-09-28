@@ -90,6 +90,21 @@ def test_pair_event_by_team_code():
     assert L.pair_event("t1", "geng", [d]) is None
 
 
+def test_venue_codes_that_differ_from_riots_still_pair():
+    """2026-09-28: the venue wrote tos for Riot's OTS and hmble for HMB."""
+    assert L.code_score("tos", "ots") == 3 and L.code_score("hmble", "hmb") == 2
+    assert L.code_score("tp", "tp") == 4 and L.code_score("tp", "fly") == 0
+    tp = {"start": "2026-09-28T17:00:00Z",
+          "teams": [{"id": "1", "code": "tp", "name": "Team Phantasma", "wins": 0},
+                    {"id": "2", "code": "ots", "name": "The Otter Side", "wins": 0}]}
+    other = {"start": "2026-09-28T17:00:00Z",
+             "teams": [{"id": "3", "code": "tpa", "name": "X", "wins": 0},
+                       {"id": "4", "code": "sot", "name": "Y", "wins": 0}]}
+    d, a, b = L.pair_event("tp", "tos", [other, tp], start="2026-09-28T17:00:00Z")
+    assert d is tp and a["code"] == "tp" and b["code"] == "ots"
+    assert L.pair_event("tp", "tos", [tp], start="2026-09-29T02:00:00Z") is None   # 9h apart
+
+
 def _obs(tmp_path):
     """A synthetic game: the feed swings to A at t=100 s, the market follows
     30 s later; kills pass 24.5 at t=200 s and the over stays at 0.60 until t=206 s."""
