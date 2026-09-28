@@ -120,6 +120,12 @@ def main():
                     [r for r in dog if r["model"] - r["px"] >= 0.05])
         report_band("STEP 2: dogs the rating passes on",
                     [r for r in dog if r["model"] - r["px"] < 0.05])
+    booked = [r for r in rows if r["band"] == "dog" and r.get("book") is not None]
+    if booked:
+        # step 3: the venue selling the dog 3c+ under the sportsbook's fair price.
+        # Proportional de-vig overstates dogs, so some of any gap is not real.
+        report_band("STEP 3: venue >= 3c under the sportsbook",
+                    [r for r in booked if r["book"] - r["px"] >= 0.03])
 
 
 def report_band(title, rows):
