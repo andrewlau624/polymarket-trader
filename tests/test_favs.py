@@ -136,3 +136,16 @@ def test_peek_book_does_not_open_a_book():
     assert st.peek_book(s, "g")["pos"] == {} and "g" not in s["books"]
     st.book(s, "g")
     assert st.open_books(s) == {}                              # empty books are not open
+
+
+def test_esports_match_winners_get_their_own_bands():
+    d = favs.fresh()
+    q = {"aec-cs2-gl-k27-2026-09-26": ["moneyline", SOON, 0.79, 0.80],
+         "asc-cs2-gl-k27-2026-09-26-pos-1pt5": ["spreads", SOON, 0.79, 0.80],
+         "aec-nfl-kc-lv-2026-09-26": ["moneyline", SOON, 0.79, 0.80]}
+    favs.screen(d, q, NOW)
+    assert set(d["open"]) == {"aec-cs2-gl-k27-2026-09-26|long|esfav",
+                              "aec-cs2-gl-k27-2026-09-26|short|esdog"}
+    assert d["open"]["aec-cs2-gl-k27-2026-09-26|short|esdog"]["px"] == pytest.approx(0.21)
+    assert set(d["open"]["aec-cs2-gl-k27-2026-09-26|short|esdog"]["targets"]) == \
+        {"0.4", "0.6", "0.8"}

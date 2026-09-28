@@ -25,6 +25,8 @@ from src.pm_us.jsonlog import iter_records
 MIN_N, MIN_GAMES = 300, 60
 PX_BUCKETS = {"fav": ((0.85, 0.88), (0.88, 0.91), (0.91, 0.94), (0.94, 0.961)),
               "dog": ((0.05, 0.10), (0.10, 0.15), (0.15, 0.201)),
+              "esfav": ((0.70, 0.75), (0.75, 0.80), (0.80, 0.85), (0.85, 0.901)),
+              "esdog": ((0.10, 0.15), (0.15, 0.20), (0.20, 0.25), (0.25, 0.301)),
               "long": ((0.001, 0.01), (0.01, 0.02), (0.02, 0.035), (0.035, 0.051))}
 
 
@@ -111,7 +113,9 @@ def main():
     for r in rows:
         r.setdefault("band", "fav")
     for band, title in (("fav", "FAVOURITES 0.85-0.96"), ("long", "LONGSHOTS 0.001-0.05"),
-                        ("dog", "UNDERDOGS 0.05-0.20, CFB/NFL moneylines")):
+                        ("dog", "UNDERDOGS 0.05-0.20, CFB/NFL moneylines"),
+                        ("esfav", "ESPORTS FAVOURITES 0.70-0.90, match winners"),
+                        ("esdog", "ESPORTS UNDERDOGS 0.10-0.30, match winners")):
         report_band(title, [r for r in rows if r["band"] == band])
     dog = [r for r in rows if r["band"] == "dog" and r.get("model") is not None]
     if dog:
@@ -135,6 +139,7 @@ def report_band(title, rows):
     table("by entry price", rows, px_bucket)
     table("by time to game at entry", rows, hours_bucket, ["<6h", "6-24h", "1-3d", "3-7d"])
     table("by market type", rows, lambda r: r["type"])
+    table("by sport", rows, lambda r: r["game"].split("-")[0])
     games = len({r["game"] for r in rows})
     print(f"\n  per-share P&L, 95% CI over {games} games:")
     best = None

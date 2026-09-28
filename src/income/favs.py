@@ -42,6 +42,11 @@ LEDGER = os.path.join("research", "favs.jsonl")
 
 BANDS = {"fav": (0.85, 0.96), "long": (0.001, 0.05)}
 LO, HI = BANDS["fav"]
+# Esports match winners get their own bands: the one significant edge in the
+# global tape was esports favourites at 0.75-0.90 winning ~9 points more than
+# priced, and dogs at 0.15-0.30 ~11 less. This checks it on the US venue.
+ESPORTS = ("cs2", "lol", "dota2", "r6", "valorant", "val")
+ES_BANDS = {"esfav": (0.70, 0.90), "esdog": (0.10, 0.30)}
 MAX_SPREAD = 0.03           # wider than this, the listed ask is not a real price
 MAX_HOURS = 168.0           # game starts within a week; futures take months
 TARGETS = (0.97, 0.98, 0.99)
@@ -100,10 +105,23 @@ def in_band(bid, ask, bands=BANDS):
     return out
 
 
+def sport_of(slug):
+    parts = (slug or "").split("-")
+    return parts[1] if len(parts) > 1 else ""
+
+
+def is_esports_ml(slug, market_type):
+    return market_type == "moneyline" and sport_of(slug) in ESPORTS
+
+
 def targets_for(band, px):
     """{name: exit price}. Favourites cash out near 1; longshots at a multiple."""
     if band == "long":
         return {f"{m}x": round(m * px, 4) for m in (2, 5) if m * px < 1.0}
+    if band == "esfav":
+        return {"0.95": 0.95, "0.98": 0.98}
+    if band == "esdog":
+        return {"0.4": 0.4, "0.6": 0.6, "0.8": 0.8}
     return {str(t): t for t in TARGETS}
 
 
@@ -146,7 +164,8 @@ def screen(d, quotes, now, log=None):
         h = hours_to(start, now)
         if h is None or not 0 < h <= MAX_HOURS:
             continue                        # started, or too far out
-        for band, side, px in in_band(bid, ask):
+        bands = {**BANDS, **ES_BANDS} if is_esports_ml(slug, t) else BANDS
+        for band, side, px in in_band(bid, ask, bands):
             key = pos_key(slug, side, band)
             if key in d["seen"]:
                 continue

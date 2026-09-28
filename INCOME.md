@@ -97,6 +97,13 @@ games on a typical listing), cashing out at 2x / 5x entry or holding. The
 global tape says they are the most overpriced thing on the board; this is
 the US-venue check. Same GO bar, judged separately.
 
+**Esports** match winners (CS2, LoL, Dota 2, R6, Valorant) get two more
+bands: favourites 0.70-0.90 and underdogs 0.10-0.30. The global tape's only
+significant edge was esports favourites at 0.75-0.90 winning 90.6% vs 81.9%
+priced (dogs 0.15-0.30: 12.2% vs 23.5%). The US venue lists ~135 esports
+match winners at a time with 1-2c spreads; ~24 matches on one listing. Every
+report band now also has a by-sport table.
+
 ## Underdogs, on paper (`src/income/dogs.py`, `dog_backtest.py`)
 
 The idea: buy 5-20% CFB/NFL moneyline dogs, sell if they reach 40/60/80%
