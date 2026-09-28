@@ -223,7 +223,7 @@ quiet:
 	@echo "stopped and disabled. `make run` re-enables the old MM bot."
 
 
-.PHONY: favs dogs dog-backtest income-status es es-discover es-dry es-live es-report es-feed bo3 exhaustive bookline multi economics fees deploy live handoff cycle snapshot snapshot-settle snapshot-calibrate esports-calib money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history allmarkets keyvertical paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: favs dogs dog-backtest lol lol-status income-status es es-discover es-dry es-live es-report es-feed bo3 exhaustive bookline multi economics fees deploy live handoff cycle snapshot snapshot-settle snapshot-calibrate esports-calib money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history allmarkets keyvertical paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -549,6 +549,14 @@ dogs:
 
 dog-backtest:
 	$(PY) dog_backtest.py
+
+# LoL: venue books beside Riot's live feed (lol_recorder.py, cron: lol_cycle.sh)
+lol:
+	@$(PY) lol_report.py
+
+lol-status:
+	@crontab -l 2>/dev/null | grep lol_cycle || echo "!! no lol_cycle cron line"
+	@tail -n $(or $(N),8) lol.log 2>/dev/null || echo "no lol.log yet"
 
 # the cron bot is not a systemd service: `make status` cannot see it
 income-status:

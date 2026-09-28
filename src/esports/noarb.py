@@ -76,6 +76,8 @@ def payoff(kind, arg, seq, best_of=3):
         return 1.0 if len(seq) > arg else 0.0
     if kind == "under":
         return 1.0 if len(seq) < arg else 0.0
+    if kind == "hcap":                      # arg = A's line, e.g. -1.5: A wins by 2+
+        return 1.0 if (a - b) + arg > 0 else 0.0
     raise ValueError(kind)
 
 
