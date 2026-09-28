@@ -102,7 +102,7 @@ def main():
                 rows.append(r)
             else:
                 unresolved += 1
-    print(f"== favourites + longshots (PAPER) | {path} ==")
+    print(f"== {'underdogs' if a.dogs else 'favourites + longshots'} (PAPER) | {path} ==")
     print(f"  opened {opened} | settled {len(rows)} | unresolved {unresolved} | "
           f"still open {opened - len(rows) - unresolved}")
     if not rows:
