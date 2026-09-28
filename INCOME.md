@@ -97,6 +97,28 @@ games on a typical listing), cashing out at 2x / 5x entry or holding. The
 global tape says they are the most overpriced thing on the board; this is
 the US-venue check. Same GO bar, judged separately.
 
+## Underdogs, on paper (`src/income/dogs.py`, `dog_backtest.py`)
+
+The idea: buy 5-20% CFB/NFL moneyline dogs, sell if they reach 40/60/80%
+in-game, and use a season-stats rating (`src/income/ratings.py`: opponent-
+adjusted points margin, ridge-pulled to last season) to pick which dogs.
+
+Backtest on ESPN data (DraftKings closing moneyline de-vigged + 1c as the
+entry, ESPN play-by-play win probability as the price path; 2026 weeks 1-4
+plus the few 2025 games ESPN still has lines for, n=135):
+
+    hold  -8.4c/share   sell@40% -4.5c   sell@60% -5.2c   sell@80% -8.2c
+    every CI below zero. 5-20% dogs won 4.5% of the time vs 10.4% priced.
+    rating: Brier 0.100 vs the market's 0.047 - worse than the price it
+    is meant to beat. Its picks lost less than its passes (-5.7c vs -10.6c)
+    but still lost.
+
+The forward tracker runs anyway, because DraftKings is not this venue:
+entry within 6h of kickoff, rating and book price recorded, in-game exits
+only on a bid confirmed for 3 consecutive polls. `make dogs` reports step 1
+(all dogs) and step 2 (the rating's picks vs its passes). Ratings refit once
+a day on full-scan runs.
+
 ## Pre-registered kill rules (`src/income/risk.py`)
 
 Written before any live result. A tripped rule cancels that strategy's orders.

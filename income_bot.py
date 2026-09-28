@@ -327,6 +327,7 @@ class Bot:
                            hedge_slip=args.hedge_slip)
         self.halt = None
         self.slugs = s.setdefault("slugs", {})     # game -> {line: slug}
+        self.dogs_d, self.dogs_dirty = None, False   # dogs.py state, in-play only
 
     def enabled(self, strat):
         return strat in self.a.strats and strat not in self.s["kills"] \
@@ -647,14 +648,30 @@ class Bot:
             return self.c.settlement(slug)
         try:
             all_slugs(self.c, self.say)
+            active = self.c._slug_cache if getattr(self.c, "_complete", False) else None
             favs.cycle(getattr(self.c, "_listing_ts", 0.0),
-                       getattr(self.c, "_quotes", {}),
-                       self.c._slug_cache if getattr(self.c, "_complete", False) else None,
+                       getattr(self.c, "_quotes", {}), active,
                        settle, say=self.say,
                        path=favs.PATH.replace(".json", f"{sfx}.json"),
                        ledger=favs.LEDGER.replace(".jsonl", f"{sfx}.jsonl"))
         except Exception as e:              # paper research never stops trading
             self.say(f"  favs FAILED {type(e).__name__}: {str(e)[:120]}")
+        try:
+            from src.income import dogs
+            # the ratings refit reads ~20 ESPN pages: only on full-scan runs,
+            # never inside a 290s in-play run
+            doc = dogs.load_ratings() if self.a.manage_only else \
+                dogs.refresh_ratings(say=self.say)
+            dogs.cycle(getattr(self.c, "_listing_ts", 0.0),
+                       getattr(self.c, "_quotes", {}), active, settle, self.lines, doc,
+                       say=self.say, path=self._dogs_path(),
+                       ledger=dogs.LEDGER.replace(".jsonl", f"{sfx}.jsonl"))
+        except Exception as e:
+            self.say(f"  dogs FAILED {type(e).__name__}: {str(e)[:120]}")
+
+    def _dogs_path(self):
+        from src.income import dogs
+        return dogs.PATH if self.a.live else dogs.PATH.replace(".json", ".dry.json")
 
     # ---- in-play ---------------------------------------------------------
     def inplay_loop(self, minutes):
@@ -667,6 +684,9 @@ class Bot:
         self.tracker = Tracker()
         _load_tracker(self.tracker, self.s.get("tracker"))
         ladders, moneylines = inventory(self.c, self.say), moneyline_inventory(self.c)
+        from src.income import favs as _favs
+        self.dogs_d = _favs.load(self._dogs_path()) if self.a.favs else None
+        self.dogs_dirty = False
         self.say(f"  in-play universe: {len(ladders)} ladders, {len(moneylines)} moneylines")
         end = getattr(self, "t0", _t.time()) + minutes * 60.0
         polls = 0
@@ -683,6 +703,9 @@ class Bot:
             self.ex.manage_groups(force_games=set(live))
             self.s["tracker"] = _dump_tracker(self.tracker)
             self.store.save(self.s)
+            if self.dogs_dirty:
+                _favs.save(self.dogs_d, self._dogs_path())
+                self.dogs_dirty = False
             polls += 1
             _t.sleep(max(0.0, self.a.poll - (_t.time() - t0)))
         if polls:
@@ -730,6 +753,10 @@ class Bot:
         center = -lm.mu if lm else 0.0
         lines = sorted(sorted(ks, key=lambda k: abs(k - center))[: min(self.a.near, 14)])
         q = self.ex.quotes(ks, lines)
+        if kind == "moneyline" and self.dogs_d is not None:
+            from src.income import dogs
+            if dogs.mark_live(self.dogs_d, base, q.get(0.0), st.now_iso()):
+                self.dogs_dirty = True
         if not q:
             return
         self.slugs[base] = {str(k): v for k, v in ks.items()}

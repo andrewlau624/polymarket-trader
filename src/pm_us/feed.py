@@ -69,6 +69,7 @@ def scoreboard(sport_path, date=None):
             "completed": bool((ev.get("status") or {}).get("type", {}).get("completed")),
             "period": (ev.get("status") or {}).get("period"),
             "clock": (ev.get("status") or {}).get("clock"),
+            "neutral": bool(comps[0].get("neutralSite")),
             "teams": teams,
         })
     return out

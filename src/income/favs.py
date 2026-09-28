@@ -240,10 +240,14 @@ def resolve(d, active, settle_fn, now, log=None, budget=SETTLE_PER_RUN):
     return closed
 
 
+EXTRA = ("league", "dog", "model", "book", "hit_px")     # dogs.py positions
+
+
 def _rec(pos):
     return {**{k: pos[k] for k in ("slug", "side", "px", "hours", "type", "game",
                                    "spread", "low", "hits")},
-            "band": pos.get("band", "fav")}
+            "band": pos.get("band", "fav"),
+            **{k: pos[k] for k in EXTRA if k in pos}}
 
 
 def prune(d, now):

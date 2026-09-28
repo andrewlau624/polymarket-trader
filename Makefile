@@ -223,7 +223,7 @@ quiet:
 	@echo "stopped and disabled. `make run` re-enables the old MM bot."
 
 
-.PHONY: favs income-status es es-discover es-dry es-live es-report es-feed bo3 exhaustive bookline multi economics fees deploy live handoff cycle snapshot snapshot-settle snapshot-calibrate esports-calib money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history allmarkets keyvertical paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: favs dogs dog-backtest income-status es es-discover es-dry es-live es-report es-feed bo3 exhaustive bookline multi economics fees deploy live handoff cycle snapshot snapshot-settle snapshot-calibrate esports-calib money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history allmarkets keyvertical paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -542,6 +542,13 @@ income-review:
 # favourites paper tracker (src/income/favs.py), fed by every live cron cycle
 favs:
 	@$(PY) fav_report.py
+
+# underdog tracker (src/income/dogs.py) and its ESPN backtest
+dogs:
+	@$(PY) fav_report.py --dogs
+
+dog-backtest:
+	$(PY) dog_backtest.py
 
 # the cron bot is not a systemd service: `make status` cannot see it
 income-status:

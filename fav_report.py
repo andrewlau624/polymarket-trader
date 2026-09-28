@@ -24,6 +24,7 @@ from src.pm_us.jsonlog import iter_records
 
 MIN_N, MIN_GAMES = 300, 60
 PX_BUCKETS = {"fav": ((0.85, 0.88), (0.88, 0.91), (0.91, 0.94), (0.94, 0.961)),
+              "dog": ((0.05, 0.10), (0.10, 0.15), (0.15, 0.201)),
               "long": ((0.001, 0.01), (0.01, 0.02), (0.02, 0.035), (0.035, 0.051))}
 
 
@@ -86,9 +87,12 @@ def hours_bucket(r):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--dry", action="store_true")
+    ap.add_argument("--dogs", action="store_true", help="the underdog tracker (dogs.py)")
     ap.add_argument("--ledger", default=None)
     a = ap.parse_args()
-    path = a.ledger or (LEDGER.replace(".jsonl", ".dry.jsonl") if a.dry else LEDGER)
+    from src.income.dogs import LEDGER as DOGS
+    base = DOGS if a.dogs else LEDGER
+    path = a.ledger or (base.replace(".jsonl", ".dry.jsonl") if a.dry else base)
     opened, rows, unresolved = 0, [], 0
     for r in iter_records(path):
         if r["kind"] == "fav_open":
@@ -106,8 +110,16 @@ def main():
         return
     for r in rows:
         r.setdefault("band", "fav")
-    for band, title in (("fav", "FAVOURITES 0.85-0.96"), ("long", "LONGSHOTS 0.001-0.05")):
+    for band, title in (("fav", "FAVOURITES 0.85-0.96"), ("long", "LONGSHOTS 0.001-0.05"),
+                        ("dog", "UNDERDOGS 0.05-0.20, CFB/NFL moneylines")):
         report_band(title, [r for r in rows if r["band"] == band])
+    dog = [r for r in rows if r["band"] == "dog" and r.get("model") is not None]
+    if dog:
+        # step 2: does the season-stats rating pick better dogs than step 1?
+        report_band("STEP 2: dogs the rating likes (model >= entry + 0.05)",
+                    [r for r in dog if r["model"] - r["px"] >= 0.05])
+        report_band("STEP 2: dogs the rating passes on",
+                    [r for r in dog if r["model"] - r["px"] < 0.05])
 
 
 def report_band(title, rows):

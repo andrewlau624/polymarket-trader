@@ -76,6 +76,7 @@ class LineSource:
             self.pre_lines[eid] = espn_line(eid, out["_path"])
             time.sleep(self.pause)
         spread, p_home, p_away, prov = self.pre_lines[eid]
+        out["p_home"], out["p_away"] = p_home, p_away     # de-vigged book moneyline
         if spread is None:
             return
         sport = out["league"]
@@ -112,6 +113,8 @@ class LineSource:
         ref_is_home = sh > sa
         out = {"event_id": g["event_id"], "state": g.get("state"),
                "start": g.get("date"), "ref_is_home": ref_is_home,
+               "home_abbr": home.get("abbrev"), "away_abbr": away.get("abbrev"),
+               "neutral": g.get("neutral", False),
                "league": sport, "model": None, "margin": None, "provider": None}
         try:
             ref = home if ref_is_home else away
