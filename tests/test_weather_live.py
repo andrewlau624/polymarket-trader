@@ -65,3 +65,12 @@ def test_report_prices_and_grades(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "2 trades over 1 station-days" in out            # YES 75 at 0.82, NO 76 at 0.90
     assert "KNOWN WINNER" in out and "1 times over 1 station-days, won 1" in out
+
+
+def test_only_final_cli_reports_grade():
+    t = lambda s: datetime.strptime(s, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+    # NYC is UTC-5 standard: 10:00 local on 9/29 is 15:00Z
+    assert not rep.final("NYC", "2026-09-28", t("2026-09-28 22:00"))    # partial-day CLI
+    assert not rep.final("NYC", "2026-09-28", t("2026-09-29 14:59"))
+    assert rep.final("NYC", "2026-09-28", t("2026-09-29 15:00"))
+    assert rep.final("NYC", "2026-09-28", t("2026-10-01 00:00"))

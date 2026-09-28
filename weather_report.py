@@ -51,14 +51,27 @@ def phase(r):
     return "after 6h max" if r["state"]["g6"] else "before 6h max"
 
 
-def truths(recs):
+def final(st, day, now=None):
+    """Is this climate day's CLI the FINAL one? NWS issues partial-day CLIs in
+    the afternoon ("high so far"), and the archive files them under the same
+    date - grading against one scored two fake +49c trades on day one. The
+    final report comes out the next morning local time; wait until 10:00."""
+    from datetime import datetime, timedelta, timezone
+    now = now or datetime.now(timezone.utc)
+    local = now + timedelta(hours=ws.STATIONS[st][1])
+    d = datetime.fromisoformat(day).date()
+    return local.date() > d + timedelta(days=1) or \
+        (local.date() == d + timedelta(days=1) and local.hour >= 10)
+
+
+def truths(recs, now=None):
     need = defaultdict(set)
     for r in recs:
         need[r["st"]].add(int(r["day"][:4]))
     out = {}
     for st, years in need.items():
         cli = ws.cli_highs(ws.STATIONS[st][0], sorted(years))
-        out.update({(st, d): v for d, v in cli.items()})
+        out.update({(st, d): v for d, v in cli.items() if final(st, d, now)})
     return out
 
 
