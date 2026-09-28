@@ -38,3 +38,11 @@ def test_climate_day_is_local_standard_time():
     assert d10[0][2] is None                          # window reached into 7/9: dropped
     assert ws.running_max(d10, 24) == 91.0 and ws.running_max(d10, 12) == 79.0
     assert ws.current(d10, 24) == 90.0
+
+
+def test_only_the_afternoon_six_hour_max_counts():
+    utc = lambda s: datetime.strptime(s, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+    obs = [(utc("2026-07-10 17:51"), 80.0, 81.0),     # 12:51 EST: morning group
+           (utc("2026-07-10 23:51"), 84.0, 86.0)]     # 18:51 EST: afternoon group
+    d = ws.by_climate_day(obs, -5)[datetime(2026, 7, 10).date()]
+    assert not ws.has_max6(d, 13.0) and ws.has_max6(d, 19.0)

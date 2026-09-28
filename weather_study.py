@@ -141,6 +141,33 @@ def running_max(pts, upto_h):
     return max(vals) if vals else None
 
 
+def has_max6(pts, upto_h, min_h=15.0):
+    """Has the AFTERNOON 6-hour max group (the 23:51Z one: 15:51-18:51 local
+    standard) arrived? That group is the jump in every phase-0 table. The
+    17:51Z group covers the morning and pins nothing, so it does not count."""
+    return any(m is not None for h, _, m in pts if min_h <= h <= upto_h)
+
+
+TABLE = os.path.join("research", "weather_table.json")
+
+
+def model_table(rows, path=TABLE):
+    """P(CLI - M = k) by station, LST hour and whether a 6-hour max has landed.
+    The report prices every band off this; built from history only."""
+    cells = defaultdict(lambda: defaultdict(int))
+    for x in rows:
+        k = max(-2, min(5, x["cli"] - x["M"]))
+        cells[(x["st"], x["h"], int(x["g6"]))][k] += 1
+    out = {}
+    for (st, h, g), cnt in cells.items():
+        n = sum(cnt.values())
+        out.setdefault(st, {}).setdefault(str(h), {})[str(g)] = {
+            "n": n, "p": {str(k): v / n for k, v in cnt.items()}}
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    json.dump(out, open(path, "w"))
+    return out
+
+
 def current(pts, upto_h):
     cur = [(h, t) for h, t, _ in pts if h <= upto_h and t is not None]
     return max(cur)[1] if cur else None
@@ -158,13 +185,14 @@ def study(stations, years_back):
             truth = cli.get(d.isoformat())
             if truth is None or not start <= d <= end or len(pts) < 18:
                 continue
-            for hour in range(6, 24):
+            for hour in range(0, 24):
                 rm = running_max(pts, hour + 1.0)
                 if rm is None:
                     continue
                 cur = current(pts, hour + 1.0)
                 rows.append({"st": st3, "d": d, "h": hour, "M": whole_f(rm),
-                             "cli": truth, "drop": None if cur is None else rm - cur})
+                             "cli": truth, "drop": None if cur is None else rm - cur,
+                             "g6": has_max6(pts, hour + 1.0)})
     return rows
 
 
@@ -206,9 +234,14 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--stations", default=",".join(STATIONS))
     ap.add_argument("--years", type=float, default=2.0)
+    ap.add_argument("--save-table", action="store_true",
+                    help=f"write {TABLE} for weather_report.py")
     a = ap.parse_args()
     st = [s.strip().upper() for s in a.stations.split(",") if s.strip()]
     rows = study(st, a.years)
+    if a.save_table:
+        model_table(rows)
+        print(f"  wrote {TABLE}")
     days = {(x["st"], x["d"]) for x in rows}
     print(f"== weather phase 0 | {len(days)} station-days | {', '.join(st)} ==")
     lock_curve(rows, "LOCK CURVE, all stations (M = running max so far, whole F)")
