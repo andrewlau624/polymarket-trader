@@ -30,7 +30,7 @@ def test_signals_use_only_past_bars():
 
 
 def test_a_trending_path_pays_momentum_and_a_flat_one_pays_nothing():
-    trend = [0.20 + 0.005 * i for i in range(150)]          # +6c per 30 s, steady
+    trend = [0.20 + 0.01 * i for i in range(60)]            # +6c per 30 s (6 bars)
     res = ta.run({"g": _path(trend)})
     assert ta.mean([v for _, v in res["momentum"]]) > 0
     flat = ta.run({"g": _path([0.5] * 150)})
