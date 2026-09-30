@@ -120,6 +120,8 @@ def main():
 
     # 2 + 3 + 4
     brier = defaultdict(lambda: [0.0, 0.0, 0])
+    tight = defaultdict(lambda: [0.0, 0.0, 0])     # only books a trader could use
+    spreads = defaultdict(list)
     trades, seen = [], set()
     pinned = []
     for r in graded:
@@ -140,6 +142,12 @@ def main():
                 acc[0] += (mid - won) ** 2
                 acc[1] += (p - won) ** 2
                 acc[2] += 1
+                spreads[ph].append(b[2] - b[0])
+                if b[2] - b[0] <= 0.10:
+                    t_ = tight[ph]
+                    t_[0] += (mid - won) ** 2
+                    t_[1] += (p - won) ** 2
+                    t_[2] += 1
             day = (st, r["day"])
             if b[2] is not None and (day, band, "yes") not in seen \
                     and p - b[2] - taker_fee(b[2]) >= EDGE:
@@ -165,8 +173,16 @@ def main():
     for ph in ("before 6h max", "after 6h max", "day over"):
         v, m, n = brier[ph]
         if n:
+            sp = sorted(spreads[ph])
             print(f"   {ph:<14} n={n:>6}  venue {v / n:.4f}  history {m / n:.4f}  "
-                  f"-> {'HISTORY better' if m < v else 'venue better'}")
+                  f"-> {'HISTORY better' if m < v else 'venue better'}  "
+                  f"(median spread {sp[len(sp) // 2]:.2f})")
+            tv, tm, tn = tight[ph]
+            if tn:
+                print(f"   {'  spread<=10c':<14} n={tn:>6}  venue {tv / tn:.4f}  "
+                      f"history {tm / tn:.4f}")
+            else:
+                print(f"   {'  spread<=10c':<14} none: every two-sided book was wider")
 
     print(f"\n3. PAPER TRADES: first time a side is >= {EDGE:.0%} under the history, after fees")
     days = {t["day"] for t in trades}
@@ -176,10 +192,18 @@ def main():
               f"{sum(t['pnl'] for t in trades) / len(trades):+.4f}/share"
               + (f"  CI [{lo:+.4f}, {hi:+.4f}]" if lo is not None else "")
               + f", median size at price {sorted(t['size'] for t in trades)[len(trades) // 2]:.0f}")
-        for key, title in (("ph", "phase"), ("side", "side")):
+        by_day = defaultdict(list)
+        for t in trades:
+            by_day[t["day"]].append(t["pnl"])
+        top = sorted(by_day.items(), key=lambda kv: -sum(kv[1]))
+        tot = sum(t["pnl"] for t in trades)
+        print(f"     best station-day {top[0][0][0]} {top[0][0][1]}: "
+              f"{sum(top[0][1]):+.2f} of the {tot:+.2f} total; without it mean "
+              f"{(tot - sum(top[0][1])) / max(len(trades) - len(top[0][1]), 1):+.4f}")
+        for key, title in (("ph", "phase"), ("side", "side"), ("st", "station")):
             grp = defaultdict(list)
             for t in trades:
-                grp[t[key]].append(t["pnl"])
+                grp[t["day"][0] if key == "st" else t[key]].append(t["pnl"])
             for k, v in sorted(grp.items()):
                 print(f"     {title} {k:<14} n={len(v):>4} mean {sum(v) / len(v):+.4f}")
     else:
