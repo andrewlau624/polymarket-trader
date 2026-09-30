@@ -101,6 +101,7 @@ def entries(pts, use_filter):
 
 
 def outcomes(pts, i, side, win):
+    """{exit: pnl per share after fees} for one entry."""
     cost = price(pts[i], side, "buy")
     fee_in = taker_fee(cost)
     res = {}
@@ -136,13 +137,17 @@ def ci(rows, reps=2000, seed=4):
     return ms[int(0.025 * reps)], ms[int(0.975 * reps)]
 
 
-def run(gp, use_filter):
-    rows = defaultdict(list)                   # exit -> [(game, pnl)]
+def run(gp, use_filter, wins=None, trades=None):
+    """exit -> [(game, pnl)]; `trades` (if given) collects sim.py trade dicts."""
+    rows = defaultdict(list)
     for g, pts in gp.items():
-        win = winner(pts)
+        win = (wins or {}).get(g) or winner(pts)
         for i, side in entries(pts, use_filter):
+            cost = price(pts[i], side, "buy")
             for k, v in outcomes(pts, i, side, win).items():
                 rows[k].append((g, v))
+                if trades is not None:
+                    trades[k].append({"t": pts[i][0], "game": g, "cost": cost, "pnl": v})
     return rows
 
 
@@ -164,18 +169,51 @@ def report(title, rows, half):
               + f"  halves {mh(h1):+.4f} / {mh(h2):+.4f}" + ("  <- PASSES" if ok else ""))
 
 
+PRIMARY = "hold_to_end"          # the one rule judged (pre-registered 2026-09-30)
+MIN_DECIDED = 40
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--obs", default="research/lol_obs.jsonl")
+    ap.add_argument("--bankroll", type=float, default=200.0)
+    ap.add_argument("--no-riot", action="store_true", help="winners from final price only")
     a = ap.parse_args()
-    gp = games(iter_records(a.obs))
+    recs = list(iter_records(a.obs))
+    gp = games(recs)
+    wins = {}
+    if not a.no_riot:
+        try:
+            from src.esports.results import completed, winners
+            wins = winners(recs, completed())
+        except Exception as e:
+            print(f"  (Riot results unavailable: {type(e).__name__}; using final prices)")
     order = sorted(gp, key=lambda g: gp[g][0][0])
     half = set(order[: len(order) // 2])
-    decided = sum(1 for p in gp.values() if winner(p) is not None)
-    print(f"== buy the recoverable dip | {len(gp)} games ({decided} with a known winner) ==")
+    decided = sum(1 for g, p in gp.items() if (wins.get(g) or winner(p)) is not None)
+    print(f"== buy the recoverable dip | {len(gp)} games ({decided} with a known winner, "
+          f"{sum(1 for g in gp if g in wins)} from Riot) ==")
+    tf, tc = defaultdict(list), defaultdict(list)
     report("WITH the state filter (minute 14-30, gold within 3k, no inhib lead against)",
-           run(gp, True), half)
-    report("CONTROL: every 10c drop, no filter", run(gp, False), half)
+           run(gp, True, wins, tf), half)
+    report("CONTROL: every 10c drop, no filter", run(gp, False, wins, tc), half)
+
+    from src import sim
+    print(f"\n== in money: shape of the trades and a ${a.bankroll:.0f} bankroll ==")
+    for label, tr in (("CONTROL", tc), ("FILTERED", tf)):
+        for k in (PRIMARY, "bracket"):
+            sim.describe(f"{label} {k}", tr.get(k) or [], a.bankroll)
+    prim = [(t["game"], t["pnl"]) for t in tc.get(PRIMARY) or []]
+    ng = len({g for g, _ in prim})
+    lo, _hi = ci(prim) if prim else (None, None)
+    h1 = [v for g, v in prim if g in half]
+    h2 = [v for g, v in prim if g not in half]
+    ok = ng >= MIN_DECIDED and lo is not None and lo > 0 and h1 and h2 \
+        and sum(h1) > 0 and sum(h2) > 0
+    print(f"\n  VERDICT on the pre-registered rule (10c crash, no filter, hold to end): "
+          f"{'GO' if ok else 'not yet'} - needs >= {MIN_DECIDED} decided games, CI above 0, "
+          f"both halves positive; have {ng} games"
+          + (f", CI low {lo:+.4f}" if lo is not None else ""))
     print("\n  The filter earns its keep only if it beats the control AND passes on its own."
           "\n  Needs 20+ games before any of this means much.")
 

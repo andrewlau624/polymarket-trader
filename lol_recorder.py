@@ -230,6 +230,7 @@ def main(argv=None):
                         res = None
             append(a.out, {"ts": datetime.now(timezone.utc).isoformat(), "event": ev,
                            "league": T["detail"].get("league"),
+                           "match_id": T["detail"].get("match_id"),
                            "best_of": T["detail"].get("best_of"), "wins": [wa, wb],
                            "game": game_n, "A": T["A"]["code"], "feed": st,
                            "model_p": mp, "fb": T["fb"].get(game_n), "q": q,
