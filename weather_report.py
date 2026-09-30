@@ -122,6 +122,7 @@ def main():
     brier = defaultdict(lambda: [0.0, 0.0, 0])
     tight = defaultdict(lambda: [0.0, 0.0, 0])     # only books a trader could use
     spreads = defaultdict(list)
+    worst = []                                     # after-report disagreements
     trades, seen = [], set()
     pinned = []
     for r in graded:
@@ -143,6 +144,9 @@ def main():
                 acc[1] += (p - won) ** 2
                 acc[2] += 1
                 spreads[ph].append(b[2] - b[0])
+                if ph == "after 6h max" and abs(mid - won) > 0.5:
+                    worst.append((r["ts"][:16], st, r["day"], r["hour"], band, s["M"],
+                                  hi_true, round(p, 3), b[:4]))
                 if b[2] - b[0] <= 0.10:
                     t_ = tight[ph]
                     t_[0] += (mid - won) ** 2
@@ -183,6 +187,19 @@ def main():
                       f"history {tm / tn:.4f}")
             else:
                 print(f"   {'  spread<=10c':<14} none: every two-sided book was wider")
+
+    if worst:
+        seen_w, rows_w = set(), []
+        for w in worst:
+            if (w[1], w[2], w[4]) not in seen_w:
+                seen_w.add((w[1], w[2], w[4]))
+                rows_w.append(w)
+        print(f"   after-report polls where the venue mid was > 50c wrong: {len(worst)} "
+              f"({len(rows_w)} distinct bands). First per band:")
+        print("     time UTC          st  day         h  band           M  CLI  hist   book [bid,sz,ask,sz]")
+        for w in rows_w[:12]:
+            print(f"     {w[0]}  {w[1]} {w[2]} {w[3]:>2}  {w[4]:<13} {w[5]:>3} {w[6]:>4}  "
+                  f"{w[7]:.3f}  {w[8]}")
 
     print(f"\n3. PAPER TRADES: first time a side is >= {EDGE:.0%} under the history, after fees")
     days = {t["day"] for t in trades}
