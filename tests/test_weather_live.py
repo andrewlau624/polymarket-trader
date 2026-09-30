@@ -12,7 +12,8 @@ from src.weather import wx
 
 def test_parse_bands():
     assert wx.parse("tc-temp-nychigh-2026-09-25-lt67f") == ("NYC", "2026-09-25", "lt67f", None, 66)
-    assert wx.parse("tc-temp-sfohigh-2026-09-28-gte70lt71f")[3:] == (70, 70)
+    # venue wording, checked 2026-09-30: "between 70F and 71F"
+    assert wx.parse("tc-temp-sfohigh-2026-09-28-gte70lt71f")[3:] == (70, 71)
     assert wx.parse("tc-temp-miahigh-2026-09-28-gte85f")[3:] == (85, None)
     assert wx.parse("tc-temp-xyzhigh-2026-09-28-gte85f") is None
     assert wx.parse("aec-nfl-kc-lv-2026-09-28") is None
@@ -53,9 +54,9 @@ def test_report_prices_and_grades(tmp_path, monkeypatch, capsys):
     tp.write_text(json.dumps(table))
     r = {"ts": "2026-09-28T23:55:00+00:00", "st": "LAX", "day": "2026-09-28", "hour": 16,
          "state": {"M": 75, "g6": True, "drop": 3.0},
-         "bands": {"gte75lt76f": [75, 75], "gte76lt77f": [76, 76]},
+         "bands": {"gte75lt76f": [75, 75], "gte77lt78f": [77, 77]},
          "books": {"gte75lt76f": [0.80, 40, 0.82, 25, "MARKET_STATE_OPEN"],
-                   "gte76lt77f": [0.10, 30, 0.12, 20, "MARKET_STATE_OPEN"]}}
+                   "gte77lt78f": [0.10, 30, 0.12, 20, "MARKET_STATE_OPEN"]}}
     fp = tmp_path / "rec-2026-09-28.jsonl"
     fp.write_text(json.dumps(r))
     monkeypatch.setattr(rep, "truths", lambda recs: {("LAX", "2026-09-28"): 75})
@@ -74,3 +75,8 @@ def test_only_final_cli_reports_grade():
     assert not rep.final("NYC", "2026-09-28", t("2026-09-29 14:59"))
     assert rep.final("NYC", "2026-09-28", t("2026-09-29 15:00"))
     assert rep.final("NYC", "2026-09-28", t("2026-10-01 00:00"))
+
+
+def test_bounds_from_the_name_ignores_old_recorded_widths():
+    assert wx.bounds("gte76lt77f") == (76, 77)
+    assert wx.bounds("lt80f") == (None, 79) and wx.bounds("gte88f") == (88, None)

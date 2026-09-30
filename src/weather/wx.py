@@ -2,7 +2,7 @@
 
 Venue slugs (settled on the NWS CLI high, whole F):
   tc-temp-nychigh-2026-09-25-lt67f        high <= 66
-  tc-temp-nychigh-2026-09-25-gte67lt68f   high == 67
+  tc-temp-nychigh-2026-09-25-gte67lt68f   67 <= high <= 68 ("between 67F and 68F")
   tc-temp-nychigh-2026-09-25-gte72f       high >= 72
 
 The live state is rebuilt exactly as weather_study.py rebuilds history, so the
@@ -36,10 +36,18 @@ def parse(slug):
     if b.group("lt"):
         lo, hi = None, int(b.group("lt")) - 1
     elif b.group("a"):
-        lo, hi = int(b.group("a")), int(b.group("b")) - 1
+        # "gte76lt77f" reads "between 76F and 77F": a 2F band, BOTH ends in.
+        # Parsing it as 76 only made every middle band half its real width.
+        lo, hi = int(b.group("a")), int(b.group("b"))
     else:
         lo, hi = int(b.group("gte")), None
     return CITY[m.group("city")], m.group("date"), m.group("band"), lo, hi
+
+
+def bounds(band):
+    """(lo, hi) from a band name alone, e.g. 'gte76lt77f' -> (76, 77)."""
+    p = parse(f"tc-temp-nychigh-2000-01-01-{band}")
+    return (p[3], p[4]) if p else (None, None)
 
 
 def in_band(v, lo, hi):

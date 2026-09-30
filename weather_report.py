@@ -131,7 +131,10 @@ def main():
         if dist is None:
             continue
         ph = phase(r)
-        for band, (lo, hi) in r["bands"].items():
+        for band in r["bands"]:
+            # from the name, not the recorded bounds: recordings before
+            # 2026-09-30 stored middle bands as 1F wide (they are 2F)
+            lo, hi = wx.bounds(band)
             b = r["books"].get(band)
             if not b or b[4] not in (None, "MARKET_STATE_OPEN"):
                 continue
