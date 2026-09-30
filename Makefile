@@ -223,7 +223,7 @@ quiet:
 	@echo "stopped and disabled. `make run` re-enables the old MM bot."
 
 
-.PHONY: favs dogs dog-backtest lol lol-ta lol-status weather weather-study weather-status income-status es es-discover es-dry es-live es-report es-feed bo3 exhaustive bookline multi economics fees deploy live handoff cycle snapshot snapshot-settle snapshot-calibrate esports-calib money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history allmarkets keyvertical paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: favs dogs dog-backtest lol lol-ta lol-dip lol-status weather weather-study weather-status income-status es es-discover es-dry es-live es-report es-feed bo3 exhaustive bookline multi economics fees deploy live handoff cycle snapshot snapshot-settle snapshot-calibrate esports-calib money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history allmarkets keyvertical paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -569,6 +569,10 @@ weather-status:
 	@crontab -l 2>/dev/null | grep weather_cycle || echo "!! no weather_cycle cron line"
 	@tail -n $(or $(N),6) weather.log 2>/dev/null || echo "no weather.log yet"
 	@ls -la research/weather 2>/dev/null | tail -3
+
+# buy the dip only while the feed says the game is still winnable
+lol-dip:
+	@$(PY) lol_dip.py
 
 lol-status:
 	@crontab -l 2>/dev/null | grep lol_cycle || echo "!! no lol_cycle cron line"
