@@ -378,3 +378,22 @@ Then live trading starts at $100–200 per venue with these limits:
   - **PASS (per level, ITF is the primary):** on S ≥ 2026-03-01, ≥ 300 entries, the 95%
     CI of return per $ above 0, and both chronological halves positive.
   - **Diagnostic:** Brier of Elo vs Brier of price on the same matches.
+
+- **2026-10-01, before any price was compared:** added **T5, Czech Liga Pro: Polymarket
+  US vs bet365**.
+  - **Data:** OddsPapi `odds-by-tournaments` (tournament 36349, bookmaker bet365) is
+    snapshotted every 3 h, which is 8 requests a day inside the free quota, by
+    `hunt/clp_odds.py`. OddsPapi fixture ids are Sportradar ids, the same as
+    `sportradarGameId` on Polymarket US events, so the join is exact.
+    - Polymarket books come from `hunt/niche_recorder.py`, every 5 min.
+  - **Fair value:** bet365 match-winner odds de-vigged proportionally, from the snapshot
+    taken before the Polymarket quote and ≤ 3 h old.
+  - **Entry:** the LAST Polymarket OPEN quote ≥ 60 s before the scheduled start. Buy
+    side X at the ask when `fair(X) − (ask + 0.0695·ask(1−ask)) ≥ 0.04`, one per match.
+    Hold to settlement.
+  - **Bootstrap unit:** the match.
+  - **PASS:** ≥ 150 entries on ≥ 150 matches, the 95% CI of return per $ above 0, both
+    halves positive, and P(50% drawdown) < 10%.
+  - **Diagnostic:** Brier of bet365 fair vs Polymarket mid on the same matches. If
+    Polymarket's Brier is lower, bet365 is not the better-informed book and the test is
+    expected to fail.
