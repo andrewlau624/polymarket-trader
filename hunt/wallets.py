@@ -13,7 +13,7 @@ SELECT   taker trades in markets that resolved 2025-01-01 .. 2026-02-28 (the
            not crypto up/down (5-15 min markets are a different, bot game),
            and it is not an exchange/operator address (taker == contract).
 FOLLOW   on markets resolving 2026-03-01 or later: each time a skilled wallet
-         taker-BUYS token X, we buy X at the first taker BUY price by ANYONE at
+         aggressively buys token X (taker BUY X, or taker SELL of the other token), we buy X at the first taker BUY price by ANYONE at
          least DELAY seconds later (a real ask we could have hit), hold to
          resolution, pay the Polymarket US taker fee. One entry per (market, token).
 PLACEBO  the same markets and tokens entered at a random taker BUY of that token
@@ -35,7 +35,7 @@ FEE = 0.0695
 
 def con():
     c = duckdb.connect()
-    c.sql("SET memory_limit='10GB'; SET threads=8; SET preserve_insertion_order=false")
+    c.sql("SET memory_limit='10GB'; SET threads=8; SET preserve_insertion_order=false; SET enable_progress_bar=false")
     c.sql(f"SET temp_directory='{D}/tmp'")
     return c
 
@@ -70,15 +70,23 @@ def select(c):
 def follow(c, delay):
     sk = json.load(open("hunt/skilled.json"))["wallets"]
     c.sql("CREATE OR REPLACE TABLE sk AS SELECT unnest($w) AS w", params={"w": sk})
+    # every fill is one aggressive buy by the taker: BUY X at p, or SELL X at p == buy the
+    # other token at 1 - p (the dump records complementary matches as SELLs)
     c.sql(f"""
     CREATE OR REPLACE TABLE ho AS
-    SELECT tr.market_id, tr.nonusdc_side AS tok, tr.taker AS w, tr.taker_direction AS dir,
-           tr.price, tr.timestamp AS ts, m.event_id, m.cat, (tr.nonusdc_side = m.winner)::INT AS won
-    FROM read_parquet('{D}/trades.parquet') tr JOIN read_parquet('{D}/mk.parquet') m USING (market_id)
-    WHERE m.t_end >= {SPLIT} AND m.cat <> 'crypto_updown' AND tr.price > 0 AND tr.price < 1""")
+    WITH t AS (
+      SELECT tr.market_id, tr.taker AS w, tr.timestamp AS ts, m.event_id, m.cat, m.winner,
+             CASE WHEN tr.taker_direction = 'BUY' THEN tr.nonusdc_side
+                  WHEN tr.nonusdc_side = 'token1' THEN 'token2' ELSE 'token1' END AS tok,
+             CASE WHEN tr.taker_direction = 'BUY' THEN tr.price ELSE 1 - tr.price END AS price
+      FROM read_parquet('{D}/trades.parquet') tr JOIN read_parquet('{D}/mk.parquet') m USING (market_id)
+      WHERE m.t_end >= {SPLIT} AND m.cat <> 'crypto_updown' AND tr.price > 0 AND tr.price < 1
+        AND tr.taker <> tr.contract
+    )
+    SELECT market_id, tok, w, 'BUY' AS dir, price, ts, event_id, cat, (tok = winner)::INT AS won FROM t""")
     sig = c.sql("""
     SELECT market_id, tok, min(ts) AS ts FROM ho
-    WHERE dir = 'BUY' AND w IN (SELECT w FROM sk) GROUP BY ALL""")
+    WHERE w IN (SELECT w FROM sk) GROUP BY ALL""")
     c.sql("CREATE OR REPLACE TABLE sig AS SELECT * FROM sig")
     fol = c.sql(f"""
     SELECT s.market_id, s.tok, arg_min(h.price, h.ts) AS price, any_value(h.event_id) AS event_id,
