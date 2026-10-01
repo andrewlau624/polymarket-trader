@@ -267,3 +267,20 @@ Then live trading starts at $100–200 per venue with these limits:
     windows are fixed here.
   - **PASS** on matches from 2026-03-01: ≥ 100 entries on ≥ 50 matches, the 95% CI
     of return per $ above 0, and positive in both halves of that period.
+
+- **2026-10-01, before running it:** added **T1, tennis favourite around match time,
+  re-tested without the duration leak**.
+  - The scan's "last hour before close" tennis cells leaked the outcome: comebacks make
+    matches longer.
+  - **Timing:** this version times entries from the **scheduled start**,
+    S = `end_date` − 7 days (the venue's placeholder convention). S is known in advance.
+  - **Markets:** ATP, WTA and minor tennis match winners on the international venue;
+    set, total, handicap and spread markets are excluded.
+  - **Entry:** the first aggressive buy of a token priced in band A (0.65–0.80) or
+    band B (0.80–0.90), timestamped in [S, S + 6 h].
+    - The slow-fill variant takes the first such buy ≥ 60 s after that one.
+  - **Trade:** hold to resolution with the Polymarket US taker fee. One entry per
+    (market, token, band). The bootstrap unit is the event.
+  - **PASS:** for a band, on markets resolving from 2026-03-01, ≥ 200 markets and the
+    95% CI of return per $ above 0 in **both** the first-fill and the slow-fill variants.
+    Train is reported but cannot pass on its own.
