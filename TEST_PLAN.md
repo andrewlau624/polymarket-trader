@@ -357,3 +357,24 @@ Then live trading starts at $100–200 per venue with these limits:
     chronological halves positive, and (a) at 120 s with mean > 0.
   - **KILL:** if, after 200 matches, the book leads the score on > 80% of game changes
     (no lag to exploit).
+
+- **2026-10-01, before any rating was compared with a price:** added **T4, tennis Elo vs
+  the pre-match price (international-venue history), aimed at ITF**.
+  - **Edge:** in lower-tier tennis, books rely on thin information and studies find the
+    favourite–longshot bias strongest there. Polymarket US lists ITF, UTR, ATP and WTA.
+  - **Matches:** single match-winner markets `atp-`/`wta-`/`itf-` on the international
+    venue, resolved cleanly, from `markets.parquet`.
+    - Doubles ("/") and "Completed Match" markets are excluded.
+    - Players come from the question "<event>: A vs B", with answer1 = A.
+    - Scheduled start S = end_date − 7 d.
+  - **Ratings:** walk-forward Elo per player, men and women pooled (they never meet),
+    updated in S order. K is chosen on S < 2026-03-01 from {16, 24, 32, 48}, then frozen.
+    Both players need ≥ 10 prior rated matches.
+  - **Price:** for each token, the LAST aggressive buy in [S − 6 h, S): a real ask
+    before play.
+  - **Entry:** buy token X when `elo(X) − (price + 0.0695·p(1−p)) ≥ 0.05`, at most one
+    per match (the larger edge). Hold to resolution.
+  - **Bootstrap unit:** the event.
+  - **PASS (per level, ITF is the primary):** on S ≥ 2026-03-01, ≥ 300 entries, the 95%
+    CI of return per $ above 0, and both chronological halves positive.
+  - **Diagnostic:** Brier of Elo vs Brier of price on the same matches.
