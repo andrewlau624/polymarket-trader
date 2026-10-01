@@ -261,3 +261,27 @@ expectancy.
    against settlement with the `favs.py` pattern, as maker fills only.
 
 **Next phase (2):** pre-register both in `TEST_PLAN.md` before collecting any data.
+
+---
+
+## First look: Kalshi vs Polymarket US (25 minutes, 2026-10-01 02:36Z) — NOT a verdict
+
+The pre-registered test (TEST_PLAN.md) needs 14 days. This is three sweeps of 195
+games (432 pre-game observations), with the two venues fetched 0.10 s apart
+(median).
+
+- **The venues agree closely.** |Polymarket mid − Kalshi mid| has a median of
+  0.25c and a 90th percentile of 1.5c (n=428).
+- **S1 (take both sides) looks dead on arrival.**
+  - The best pair per observation nets −3.5c (median) after both fees.
+  - Only 3 of 432 observations were above zero at all; the best was +0.12c.
+  - Zero counted episodes.
+- **S3 (rest on Polymarket, hedge on Kalshi) is the only live question.**
+  - 38 observations on 19 games would net ≥ +0.5c *if filled at that moment*.
+  - The large ones (+19c to +43c) are NBA games a week out where Polymarket's
+    book is empty (spread 50–80c). A bid there fills only on a crash, so they mean
+    nothing until the fill rule says they filled.
+  - The realistic ones are +0.6–0.7c on tight NHL/CFB books (spread 0.5–1c).
+  - Whether those fill without the price moving against us is exactly what the
+    14 days measure. No paper fills yet.
+- **S2:** 1 entry, nothing settled.
