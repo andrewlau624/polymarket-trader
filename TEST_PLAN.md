@@ -176,3 +176,40 @@ Then live trading starts at $100–200 per venue with these limits:
     are 3–5 min apart. That makes the S1 persistence rule stricter, not looser.
   - S1/S2 now also include entries days before the game. Capital is locked longer
     for those, and the report shows net per $ per day held.
+
+- **2026-09-30, before any gap was computed:** added **S3, rest on Polymarket,
+  hedge on Kalshi**. The owner pointed out Polymarket is the cheaper venue.
+  As a taker it is not, at size: 1.74c vs 1.75c per contract at 50c. As a
+  maker it pays a rebate of 0.0125·p(1−p), so a pair costs ~1.4c in fees
+  instead of ~3.5c.
+
+  **S3 — rest on Polymarket, hedge on Kalshi when filled**
+  - **Post.** At an observation, for team X, a paper bid is posted on Polymarket
+    at `pm_bid(X) + 0.001`, only if:
+    - that price is still below Polymarket's ask for X; and
+    - `price − rebate + kalshi_ask(not X) + kalshi_fee` ≤ 1 − 0.005 at that
+      moment.
+
+    X = long team uses the long book's bid. X = short team means offering the
+    long side at `ask − 0.001`.
+  - **Expiry.** One live paper order per (game, team); it expires after 30 min.
+  - **Fill.** Filled only if a later observation of the game, within 30 min,
+    shows Polymarket's ask for X at or below our price, i.e. the market traded
+    through us.
+    - This is optimistic about the queue but pessimistic about timing.
+    - It cannot see fills that happen and revert between snapshots.
+  - **Hedge.** On fill, buy the other team on Kalshi at its ask **at the fill
+    observation** (taker, rounded-up fee, size = min(depth, 100)). Price moves
+    against us between posting and the fill are therefore charged.
+  - **P&L per pair:** `1 − (price − rebate) − (kalshi_ask + fee)`. A hedge that
+    cannot be placed (no Kalshi ask, or depth < 10) is a failure.
+    - Such a fill is marked to the Polymarket mid at the next observation.
+  - **PASS** requires all of these over 14 days:
+    - ≥ 100 paper fills on ≥ 20 games;
+    - the 95% CI of mean net per pair, bootstrapped over games, entirely above 0;
+    - mean net positive in both chronological halves;
+    - ≥ $5/day of net at the filled sizes (capped at 100 pairs).
+  - **KILL early** if after 7 days the mean net per fill is below 0.
+  - **Before any real money:** one 1-share real resting order on Polymarket to
+    confirm it rests and earns the rebate. RESEARCH.md says this was never
+    observed.

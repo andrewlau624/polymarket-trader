@@ -95,6 +95,47 @@ def best_net(rows):
     return out
 
 
+# --- S3 ------------------------------------------------------------------
+S3_TTL = 1800
+
+
+def s3_fills(rows):
+    """Paper rest-on-Polymarket, hedge-on-Kalshi fills (TEST_PLAN.md S3).
+    [{t, game, start, net, c, hedged}]. An unhedgeable fill is marked to the
+    Polymarket mid at the game's next observation (else this one)."""
+    pending, failed, out = {}, {}, []
+    for r in rows:
+        g = r["game"]
+        for team in ("L", "S"):
+            k = (g, team)
+            if k in failed:                          # mark a failed hedge
+                o, t0 = failed.pop(k)
+                m, _ = core.mid(r["pm"]) if r.get("pm") else (None, None)
+                if m is not None:
+                    v = m if team == "L" else 1 - m
+                    out.append({"t": t0, "game": g, "start": r["start"], "c": o["c"],
+                                "net": round(v - (o["px"] - core.pm_rebate(o["px"])), 5),
+                                "hedged": False})
+            o = pending.get(k)
+            if o and r["t"] - o["t"] > S3_TTL:
+                pending.pop(k)
+                o = None
+            if o and r["t"] > o["t"] and core.s3_filled(o, r):
+                pending.pop(k)
+                h = core.s3_hedge(o, r)
+                if h:
+                    out.append({"t": r["t"], "game": g, "start": r["start"], "net": h[0],
+                                "c": h[1], "hedged": True})
+                else:
+                    failed[k] = (dict(o, c=10), r["t"])
+                continue
+            if k not in pending:
+                p = core.s3_post(r, team)
+                if p:
+                    pending[k] = dict(p, t=r["t"])
+    return out
+
+
 # --- S2 ------------------------------------------------------------------
 def s2_entries(rows):
     seen, out = set(), []
@@ -233,6 +274,33 @@ def main(argv=None):
     if days >= 7 and len(eps) < 5:
         print("  KILL: fewer than 5 counted episodes after 7 days")
 
+    print("\nS3  REST ON POLYMARKET (rebate), HEDGE ON KALSHI WHEN FILLED (pre-game)")
+    f3 = s3_fills(pre)
+    s3_pass = False
+    if f3:
+        g3 = defaultdict(list)
+        for x in f3:
+            g3[x["game"]].append(x)
+        mean = statistics.mean(x["net"] for x in f3)
+        c3 = ci(list(g3.values()), lambda gs: statistics.mean(x["net"] for g in gs for x in g))
+        order = sorted(g3, key=lambda g: g3[g][0]["start"])
+        half = lambda gs: statistics.mean(x["net"] for g in gs for x in g3[g]) if gs else 0.0
+        h1, h2 = half(order[:len(order) // 2]), half(order[len(order) // 2:])
+        usd = sum(x["net"] * x["c"] for x in f3)
+        print(f"  {len(f3)} paper fills on {len(g3)} games ({sum(not x['hedged'] for x in f3)} "
+              f"unhedgeable) | mean net {mean:+.4f}/pair"
+              + (f", 95% CI [{c3[0]:+.4f}, {c3[1]:+.4f}]" if c3 else ""))
+        print(f"  win rate {sum(x['net'] > 0 for x in f3) / len(f3):.0%} | halves {h1:+.4f} | {h2:+.4f}"
+              f" | ${usd:.2f} total = ${usd / days:.2f}/day")
+        s3_pass = (len(f3) >= 100 and len(g3) >= 20 and c3 and c3[0] > 0 and h1 > 0 and h2 > 0
+                   and usd / max(days, 14.0) >= 5.0)
+        if days >= 7 and mean < 0:
+            print("  KILL: mean net per fill below 0 after 7 days")
+    else:
+        print("  no paper fills yet")
+    print(f"  bar: >= 100 fills, >= 20 games, CI above 0, both halves > 0, >= $5/day -> "
+          f"{'PASS' if s3_pass else 'not passed'}")
+
     print("\nLEAD-LAG (diagnostic, pre-game gaps >= 2c between mids)")
     n, sp, sk, cl = lead_lag(rows)
     if n:
@@ -293,6 +361,7 @@ def main(argv=None):
               f"episodes {len(s1_episodes(live))} (n={len(bl)})")
 
     print("\nVERDICT: " + ("S1 PASSED" if s1_pass else "S1 not passed") + " | "
+          + ("S3 PASSED" if s3_pass else "S3 not passed") + " | "
           + ("S2 PASSED" if s2_pass else "S2 not passed")
           + ". Nothing trades until TEST_PLAN.md's live steps are done.")
     return 0

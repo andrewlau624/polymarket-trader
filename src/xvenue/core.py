@@ -274,3 +274,72 @@ def cheap_entries(row, edge=0.010, cap=100):
             if px + fee(venue, px, c) / c <= fv - edge:
                 out.append((team, venue, how, px, round(fv, 4), c))
     return out
+
+
+# --- S3: rest on Polymarket, hedge on Kalshi -----------------------------
+PM_MAKER = 0.0125
+PM_TICK = 0.001
+
+
+def pm_rebate(p, c=1):
+    """Polymarket US maker rebate in dollars (money IN)."""
+    return PM_MAKER * c * p * (1.0 - p)
+
+
+def k_best_buy(row, team, min_c=10):
+    """Cheapest Kalshi way to buy `team` with >= min_c depth: (px, depth) or None."""
+    opts = [(px, sz) for v, _how, px, sz in buys(row)[team] if v == "k" and sz >= min_c]
+    return min(opts) if opts else None
+
+
+def s3_post(row, team, cap=100, hurdle=0.005):
+    """A paper resting order on Polymarket that would net >= hurdle if filled
+    now and hedged on Kalshi now, or None. Returns {team, px (our price for
+    `team`), rest (the long-book price we rest at), side}.
+
+    team L: bid on the long book at bid + tick.  team S: offer the long book at
+    ask - tick, which buys S at 1 - that price. Both must stay inside the spread."""
+    pm = row.get("pm")
+    if not pm or pm[4] != "MARKET_STATE_OPEN" or pm[0] is None or pm[2] is None:
+        return None
+    other = "S" if team == "L" else "L"
+    h = k_best_buy(row, other)
+    if not h:
+        return None
+    if team == "L":
+        rest = round(pm[0] + PM_TICK, 6)
+        if rest >= pm[2]:
+            return None
+        px = rest
+    else:
+        rest = round(pm[2] - PM_TICK, 6)
+        if rest <= pm[0]:
+            return None
+        px = round(1.0 - rest, 6)
+    c = int(min(h[1], cap))
+    net = 1.0 - (px - pm_rebate(px)) - (h[0] + k_fee(h[0], c) / c)
+    if net < hurdle:
+        return None
+    return {"team": team, "px": px, "rest": rest, "net_at_post": round(net, 5)}
+
+
+def s3_filled(order, row):
+    """Did the market trade through our resting price by this observation?"""
+    pm = row.get("pm")
+    if not pm:
+        return False
+    if order["team"] == "L":
+        return pm[2] is not None and pm[2] <= order["rest"]
+    return pm[0] is not None and pm[0] >= order["rest"]
+
+
+def s3_hedge(order, row, cap=100):
+    """Net per pair hedging a filled order on Kalshi at THIS observation, and
+    the size; None if the hedge is not available (a failure, see report)."""
+    other = "S" if order["team"] == "L" else "L"
+    h = k_best_buy(row, other)
+    if not h:
+        return None
+    c = int(min(h[1], cap))
+    px = order["px"]
+    return round(1.0 - (px - pm_rebate(px)) - (h[0] + k_fee(h[0], c) / c), 5), c

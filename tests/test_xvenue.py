@@ -151,3 +151,39 @@ def test_grade_sides():
     assert t["pnl"] == pytest.approx(0.10 - core.pm_fee(0.40))
     t = rep.grade(dict(e, venue="k"), {"k:T": 1.0})
     assert t["pnl"] == pytest.approx(0.60 - core.k_fee(0.40, 10) / 10)
+
+
+def test_s3_post_fill_hedge():
+    # long bid 0.44 / ask 0.46; Kalshi sells the short team at 0.53
+    r = row([0.44, 50, 0.46, 50, "MARKET_STATE_OPEN"],
+            [0.45, 50, 0.47, 50, "active"], [0.51, 50, 0.53, 50, "active"])
+    p = core.s3_post(r, "L")
+    assert p["rest"] == pytest.approx(0.441)
+    want = 1 - (0.441 - core.pm_rebate(0.441)) - (0.53 + core.k_fee(0.53, 50) / 50)
+    assert p["net_at_post"] == pytest.approx(want, abs=1e-5)
+    assert not core.s3_filled(p, r)                               # ask 0.46 > 0.441
+    later = dict(r, pm=[0.43, 50, 0.44, 50, "MARKET_STATE_OPEN"])
+    assert core.s3_filled(p, later)
+    # the hedge is priced at the FILL observation: Kalshi moved against us
+    moved = dict(later, ks=[0.54, 50, 0.56, 50, "active"], kl=[0.40, 50, 0.43, 50, "active"])
+    net, c = core.s3_hedge(p, moved)
+    assert net == pytest.approx(1 - (0.441 - core.pm_rebate(0.441)) - (0.56 + core.k_fee(0.56, 50) / 50),
+                                abs=1e-5)
+
+
+def test_s3_short_side_offers_long_book():
+    r = row([0.44, 50, 0.46, 50, "MARKET_STATE_OPEN"],
+            [0.40, 50, 0.42, 50, "active"], [0.57, 50, 0.60, 50, "active"])
+    p = core.s3_post(r, "S")
+    assert p["rest"] == pytest.approx(0.459) and p["px"] == pytest.approx(0.541)
+    assert core.s3_filled(p, dict(r, pm=[0.46, 50, 0.47, 50, "MARKET_STATE_OPEN"]))
+
+
+def test_s3_report_counts_one_fill_per_order():
+    r = row([0.44, 50, 0.46, 50, "MARKET_STATE_OPEN"],
+            [0.45, 50, 0.47, 50, "active"], [0.51, 50, 0.53, 50, "active"])
+    hit = dict(r, pm=[0.43, 50, 0.44, 50, "MARKET_STATE_OPEN"])
+    mk = lambda t, x: dict(x, t=t, game="G", start="s")
+    fills = rep.s3_fills([mk(0, r), mk(60, hit)])
+    assert len([f for f in fills if f["hedged"]]) == 1
+    assert rep.s3_fills([mk(0, r), mk(rep.S3_TTL + 1, hit)]) == []    # expired first
