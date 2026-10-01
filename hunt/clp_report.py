@@ -2,10 +2,10 @@
 
     .venv/bin/python hunt/clp_report.py
 
-Joins research/clp/map.jsonl (Polymarket slug -> Sportradar id) to the OddsPapi
-bet365 snapshots (fixture externalProviders.betradarId, names from fixtures.json)
-and to the niche recorder's Polymarket books. Sides are matched by player NAME,
-never by position.
+Czech Liga Pro market slugs carry the Sportradar id that OddsPapi uses as its
+fixture id, so the niche recorder's Polymarket books join the bet365 snapshots
+exactly. Player names come from the daily names files (or the full fixtures
+dump). Sides are matched by player NAME, never by position.
 """
 
 import glob
@@ -46,36 +46,32 @@ def main():
                       for f in json.load(open("research/clp/fixtures.json"))})
     for fp in glob.glob("research/clp/names-*.json"):
         names.update({k: tuple(v) for k, v in json.load(open(fp)).items()})
-    snaps = defaultdict(list)                          # betradar id -> [(t, p1, p2)]
+    snaps = defaultdict(list)                          # OddsPapi fixture id -> [(t, p1, p2, n1, n2)]
     for fp in sorted(glob.glob("research/clp/odds-*.json")):
         t = int(os.path.basename(fp)[5:-5])
         d = json.load(open(fp))
         for f in d if isinstance(d, list) else []:
             pr = fair(f)
-            br = (f.get("externalProviders") or {}).get("betradarId") or int(str(f["fixtureId"])[-8:])
             if pr:
-                snaps[int(br)].append((t, *pr, *names.get(f["fixtureId"], (None, None))))
-    mp = {}
-    for line in open("research/clp/map.jsonl"):
-        r = json.loads(line)
-        if "czechligapro" in r["slug"]:
-            mp[r["slug"]] = r
+                snaps[f["fixtureId"]].append((t, *pr, *names.get(f["fixtureId"], (None, None))))
+    # Czech Liga Pro market slugs ARE the Sportradar/OddsPapi fixture id:
+    # 'aec-czechligapro-id2503634975164896' <-> fixtureId 'id2503634975164896'
+    fid = lambda slug: slug.split("czechligapro-", 1)[1] if "czechligapro-id" in slug else None
     quotes = {}
     for fp in glob.glob("research/niche/rec-*.jsonl"):
         for line in open(fp):
             r = json.loads(line)
-            if r["slug"] not in mp or r["q"][4] != "MARKET_STATE_OPEN" or not r.get("start"):
+            if not fid(r["slug"]) or r["q"][4] != "MARKET_STATE_OPEN" or not r.get("start"):
                 continue
             if r["t"] <= epoch(r["start"]) - 60 and (r["slug"] not in quotes or r["t"] > quotes[r["slug"]]["t"]):
                 quotes[r["slug"]] = r
     rows = []
     for slug, q in quotes.items():
-        br = int(mp[slug]["sr"].split(":")[-1])
-        ss = [s for s in snaps.get(br, []) if s[0] <= q["t"] and q["t"] - s[0] <= 4 * 3600]
+        ss = [s for s in snaps.get(fid(slug), []) if s[0] <= q["t"] and q["t"] - s[0] <= 4 * 3600]
         if not ss:
             continue
         t, p1, p2, n1, n2 = max(ss)
-        long_name = next(s["name"] for s in mp[slug]["sides"] if s["long"])
+        long_name = q.get("long")
         if same(long_name, n1) and not same(long_name, n2):
             pl = p1
         elif same(long_name, n2) and not same(long_name, n1):

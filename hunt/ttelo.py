@@ -177,6 +177,9 @@ def main():
     ap.add_argument("--fit", action="store_true")
     ap.add_argument("--grade", action="store_true")
     a = ap.parse_args()
+    if not os.path.exists("research/us_closed.jsonl"):
+        print("T2 skipped: needs research/us_closed.jsonl (run research/us_closed.py; ~1 h)")
+        return
     ms = matches()
     print(f"{len(ms)} settled table-tennis matches, {ms[0]['t'][:10]} .. {ms[-1]['t'][:10]}")
     if a.fit:
