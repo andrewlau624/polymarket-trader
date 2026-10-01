@@ -113,9 +113,38 @@ def last_quotes(cutoff_s=60):
     return best
 
 
+def add_recent(ms, slugs):
+    """Matches recorded by the niche recorder that settled after the closed listing was
+    pulled: fetch each settlement (1 = the long side won) and append them in time order."""
+    from xvenue_recorder import PM, get
+    have = {m["slug"] for m in ms}
+    cache_fp = "research/niche/settle.json"
+    try:
+        cache = json.load(open(cache_fp))
+    except (OSError, ValueError):
+        cache = {}
+    add = []
+    for slug, r in slugs.items():
+        lg = slug.split("-")[1]
+        if slug in have or lg not in LEAGUES or not r.get("long") or not r.get("short"):
+            continue
+        if cache.get(slug) is None:            # unsettled last time: ask again
+            d = get(f"{PM}/markets/{slug}/settlement")
+            cache[slug] = None if not d else d.get("settlement")
+            time.sleep(0.25)
+        v = cache[slug]
+        if v is None or str(v) not in ("0", "1", "0.0", "1.0"):
+            continue
+        add.append({"lg": lg, "t": r["start"], "slug": slug, "a": f"{lg}:{r['long']}",
+                    "b": f"{lg}:{r['short']}", "a_won": int(float(v))})
+    json.dump(cache, open(cache_fp, "w"))
+    return sorted(ms + add, key=lambda x: x["t"])
+
+
 def grade(ms):
     from src import sim
     k = json.load(open("hunt/ttelo_k.json"))["k"]
+    ms = add_recent(ms, last_quotes())
     preds = {m["slug"]: (p, nn, m) for m, p, nn in run(ms, k)[0]}
     q = last_quotes()
     both, trades, bm, be = 0, [], [], []
