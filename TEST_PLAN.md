@@ -397,3 +397,7 @@ Then live trading starts at $100–200 per venue with these limits:
   - **Diagnostic:** Brier of bet365 fair vs Polymarket mid on the same matches. If
     Polymarket's Brier is lower, bet365 is not the better-informed book and the test is
     expected to fail.
+- **2026-10-01, T5 amendment, before any T5 data existed:** bet365 snapshots move from
+  every 3 h to every 4 h, and a fair value may be ≤ 4 h old (was 3 h). The reason is the
+  quota: one daily names request is needed so the droplet does not depend on a 113 MB
+  local file, and 6 + 1 requests a day ≈ 210 a month stays under the free 250.

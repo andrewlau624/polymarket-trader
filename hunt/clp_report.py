@@ -40,8 +40,12 @@ def epoch(s):
 
 
 def main():
-    names = {f["fixtureId"]: (f.get("participant1Name"), f.get("participant2Name"))
-             for f in json.load(open("research/clp/fixtures.json"))}
+    names = {}
+    if os.path.exists("research/clp/fixtures.json"):
+        names.update({f["fixtureId"]: (f.get("participant1Name"), f.get("participant2Name"))
+                      for f in json.load(open("research/clp/fixtures.json"))})
+    for fp in glob.glob("research/clp/names-*.json"):
+        names.update({k: tuple(v) for k, v in json.load(open(fp)).items()})
     snaps = defaultdict(list)                          # betradar id -> [(t, p1, p2)]
     for fp in sorted(glob.glob("research/clp/odds-*.json")):
         t = int(os.path.basename(fp)[5:-5])
@@ -67,7 +71,7 @@ def main():
     rows = []
     for slug, q in quotes.items():
         br = int(mp[slug]["sr"].split(":")[-1])
-        ss = [s for s in snaps.get(br, []) if s[0] <= q["t"] and q["t"] - s[0] <= 3 * 3600]
+        ss = [s for s in snaps.get(br, []) if s[0] <= q["t"] and q["t"] - s[0] <= 4 * 3600]
         if not ss:
             continue
         t, p1, p2, n1, n2 = max(ss)
@@ -79,7 +83,7 @@ def main():
         else:
             continue                                   # ambiguous: drop, never guess
         rows.append({"slug": slug, "t": q["t"], "fair_long": pl, "q": q["q"]})
-    print(f"\nT5  CZECH LIGA PRO | Polymarket quotes {len(quotes)}, with a bet365 snapshot <= 3 h before: {len(rows)}")
+    print(f"\nT5  CZECH LIGA PRO | Polymarket quotes {len(quotes)}, with a bet365 snapshot <= 4 h before: {len(rows)}")
     if not rows:
         return 0
     cache_fp = "research/clp/settle.json"

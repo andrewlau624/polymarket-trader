@@ -223,7 +223,7 @@ quiet:
 	@echo "stopped and disabled. `make run` re-enables the old MM bot."
 
 
-.PHONY: xvenue xvenue-status favs dogs dog-backtest lol lol-ta lol-dip lol-status weather weather-study weather-status income-status es es-discover es-dry es-live es-report es-feed bo3 exhaustive bookline multi economics fees deploy live handoff cycle snapshot snapshot-settle snapshot-calibrate esports-calib money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history allmarkets keyvertical paper live-test run stop restart status logs logs-paper results report install-services
+.PHONY: hunt-up hunt-status hunt-report xvenue xvenue-status favs dogs dog-backtest lol lol-ta lol-dip lol-status weather weather-study weather-status income-status es es-discover es-dry es-live es-report es-feed bo3 exhaustive bookline multi economics fees deploy live handoff cycle snapshot snapshot-settle snapshot-calibrate esports-calib money ps find found trade out out-live rules quiet man help setup pull check hunt account cancel flatten flatten-live flatten-cross flatten-cross-live calibrate tape watch lag scores keynumbers ladder ladder-test verify ladder-scan ladder-probe ladder-dry ladder-bg ladder-kill ladder-report ladder-trial crossmarket crossmarket-bg crossmarket-report families families-watch families-history allmarkets keyvertical paper live-test run stop restart status logs logs-paper results report install-services
 
 help:
 	@echo ""
@@ -557,6 +557,20 @@ lol:
 # chart-only trader signals on the recorded LoL prices (no game data)
 lol-ta:
 	@$(PY) lol_ta.py
+
+# hunt recorders (HUNT.md / TEST_PLAN.md): watchdog, status, all reports
+hunt-up:
+	@./hunt/hunt_cycle.sh && sleep 2 && $(MAKE) --no-print-directory hunt-status
+
+hunt-status:
+	@crontab -l 2>/dev/null | grep -q hunt_cycle && echo "cron: hunt_cycle installed" || echo "!! no hunt_cycle cron line"
+	@for s in tt_live niche_recorder lag_recorder clp_map clp_odds; do \
+	  pgrep -f "hunt/$$s.py" >/dev/null && echo "  running  $$s" || echo "  STOPPED  $$s"; done
+	@du -sh research/ttlive research/niche research/lag research/clp 2>/dev/null
+	@df -h . | tail -1
+
+hunt-report:
+	@$(PY) hunt/tt_report.py; $(PY) hunt/ttelo.py --grade; $(PY) hunt/lag_report.py; $(PY) hunt/clp_report.py
 
 # xvenue: Kalshi vs Polymarket US on the same games (TEST_PLAN.md)
 xvenue:
