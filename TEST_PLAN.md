@@ -284,3 +284,48 @@ Then live trading starts at $100–200 per venue with these limits:
   - **PASS:** for a band, on markets resolving from 2026-03-01, ≥ 200 markets and the
     95% CI of return per $ above 0 in **both** the first-fill and the slow-fill variants.
     Train is reported but cannot pass on its own.
+
+- **2026-10-01, before any rating was compared with a price:** added **T2, table-tennis
+  ratings vs Polymarket US**.
+  - **Edge:** Setka Cup, Czech Liga Pro and TT Elite trade only on Polymarket US.
+    Players play many matches a day, so a rating built from the venue's own settled
+    results may know more than a thin book.
+  - **Ratings:** Elo per league, fitted only on matches that started before the match
+    being priced. Ratings come from `research/us_closed.jsonl`: the winner is the side
+    whose settled price is 1, and 0.50 settlements are skipped.
+    - K is chosen on matches before 2026-09-01 and then frozen.
+    - New players start at 1500, and a player needs ≥ 20 prior matches to be traded.
+  - **Prices:** `hunt/niche_recorder.py` snapshots, taking the last snapshot ≥ 60 s
+    before the scheduled start. The state must be OPEN with an ask on the side bought.
+  - **Entry:** buy side X at its ask when `elo_p(X) − (ask + 0.0695·ask(1−ask)) ≥ 0.05`,
+    at most one per match. Hold to the venue's settlement.
+  - **Bootstrap unit:** the match.
+  - **PASS:** ≥ 200 entries on ≥ 200 matches, the 95% CI of return per $ above 0,
+    positive in both chronological halves, and src/sim.py P(50% drawdown) < 10%.
+  - **Diagnostic:** Brier of Elo vs Brier of the recorded mid, on the same matches.
+
+- **2026-10-01, before any order:** added **M2, fill the empty side of a reward market**.
+  - **Edge:** Polymarket US pays a daily pool per market. Each side of the book earns
+    only in seconds when that side holds ≥ Target Size, and without a Max Spread each
+    side is scored on its own even if the other side is empty
+    (docs.polymarket.us/incentives/liquidity).
+    - On 2026-10-01 about 90 market-sides in daily programmes had **no** bids.
+    - A post-only bid at 0.1c for Target Size (collateral = 0.001 × size, e.g. $5–$20)
+      would be the side's only order, so it would score 100% of that side every second.
+    - If filled, we own a longshot bought at 0.1c, so the loss is capped at the
+      collateral.
+  - **Selection** (`hunt/reward_bot.py`, decided now):
+    - daily or daily_event period, no Max Spread, market OPEN, and the market's
+      endDate > 5 days away;
+    - the side holds < 10% of Target Size, and our completing order sits at ≤ 1c (bid)
+      or ≥ 99c (ask);
+    - modelled pay = (pool ÷ markets in programme) ÷ 2 ≥ $1.10 per day;
+    - at most $25 collateral per market and $100 in total.
+  - **Measured outcome:** earnings rows from `/v1/incentives/earnings` (PAID / PENDING /
+    SKIPPED) for every market-day we held, after the 5 + 2 business-day lag.
+    Withdrawability is read from `availableToWithdraw` after crediting.
+  - **PASS:** ≥ 5 markets × ≥ 3 daily periods, PAID ≥ 50% of the modelled amount,
+    nothing withheld, and the credited rewards are withdrawable cash.
+    - "PAID but credit only" is reported as a partial result.
+  - **KILL:** any earnings row withheld or flagged for abuse, or every row SKIPPED
+    after two periods.

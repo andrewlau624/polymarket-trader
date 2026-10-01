@@ -98,3 +98,44 @@ held to resolution, with the US taker fee.
 
 Copying loses, and loses to random. This matches polymarket-sharps (no lag beat a
 placebo).
+
+## T1 tennis re-test (scheduled-start timing): FAILED (2026-10-01)
+
+Entries ran from the scheduled start S = end_date − 7 d to S + 6 h, so they cannot
+depend on how long the match runs.
+
+- **Band 0.65–0.80, holdout:** first fill −2.05% [−2.93, −1.18], 10,317 markets;
+  slow fill −0.82% [−1.82, +0.20].
+- **Band 0.80–0.90, holdout:** first fill −1.24% [−2.05, −0.43]; slow fill +0.17%
+  [−0.74, +1.12].
+- Win rates equal prices. The earlier tennis "edge" was the duration leak.
+
+## T2 table tennis, in progress
+
+- **Ratings from results alone are nearly uninformative.** Elo built from 24,575
+  settled matches on Polymarket US had Brier 0.2462 after 2026-09-01, against 0.2500
+  for a coin flip. Its 60–70% favourites won 61.1%.
+- **The comparison with prices is pending.** The niche recorder captures pre-match
+  books; the grade waits for those matches to settle and for the ratings to be current.
+
+## M2 — fill the empty side of reward markets: the one live lead (2026-10-01)
+
+**Mechanism, quoted from docs.polymarket.us/incentives/liquidity:**
+- A side earns only when it holds Target Size.
+- "Programs without a Max Spread score each side on its own, even if the other side
+  is empty."
+- "If you're the only one providing liquidity on a second that qualifies, you earn
+  that second's full share."
+- Payouts under $1 are not paid. That explains the old SKIPPED rewards: $0.08 across
+  pools shared by thousands of markets.
+
+**What the scan found on 2026-10-01:**
+- 44,718 reward markets, 343 with a daily pool, no Max Spread and a half-pool ≥ $1.10.
+- About 90 of those had an **empty bid side**.
+
+**The plan (`hunt/reward_bot.py`, dry run):**
+- 8 post-only bids at 0.1c for Target Size, $95 collateral in total.
+- Modelled at **$25.50/day** if nobody joins. Each order would be its side's only order.
+- Fill risk: we own a longshot at 0.1c, so the loss is capped at the collateral.
+- It needs a real test, because two things cannot be read off the API: whether 0.1c
+  bids are treated as abuse, and whether rewards arrive as cash or as promo credit.
