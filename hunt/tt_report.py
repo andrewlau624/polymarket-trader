@@ -191,8 +191,7 @@ def t6_trades(by, pre):
 
 def t6_report(by, pre):
     tr = t6_trades(by, pre)
-    print(f"
-T6  SCORER WHILE THE BOOK LAGS, EXIT 30 s | rows from t >= {T6_START} only")
+    print(f"\nT6  SCORER WHILE THE BOOK LAGS, EXIT 30 s | rows from t >= {T6_START} only")
     if not tr:
         print("  no trades yet")
         return
