@@ -213,3 +213,28 @@ Then live trading starts at $100–200 per venue with these limits:
   - **Before any real money:** one 1-share real resting order on Polymarket to
     confirm it rests and earns the rebate. RESEARCH.md says this was never
     observed.
+
+- **2026-10-01, before any data was recorded:** added **S4, follow the international
+  book onto Polymarket US**.
+  - **Edge:** the international venue's book is ~70× deeper than Polymarket US's
+    (0.05c vs 3.62c impact for 50k contracts, rivermarkets.com), so it may move
+    first. A US price still sitting at the old level can then be bought before it
+    catches up.
+  - **Data:** `hunt/lag_recorder.py` polls both books back to back, every ~2–5 s,
+    for games that are live or start within 2 h.
+    - The international venue dates games in UTC and Polymarket US in ET. Pairs
+      are confirmed by team names and start time, never by slug alone.
+  - **Entry:** buy team X on Polymarket US at the ask when
+    `intl_mid(X) − (us_ask(X) + us_fee) ≥ 0.010`.
+    - The international book must have spread ≤ 0.02 and ≥ $500 at the touch.
+    - Both snapshots must be < 1 s apart.
+    - One entry per (game, team) per 10 minutes.
+  - **Scored two ways:**
+    - (a) **markout:** US bid after 60 s and after 5 min, minus entry cost, which
+      means selling into the bid with the fee paid again;
+    - (b) **hold to settlement.**
+  - **Bootstrap unit:** the game.
+  - **PASS** requires all of these: ≥ 100 entries on ≥ 20 games; the 95% CI of (b)
+    expectancy per $ above 0; (b) positive in both halves; and a lead–lag showing
+    the international mid moves first.
+  - **KILL:** if after 30 games the median 60 s markout is ≤ 0 and (b) is below 0.

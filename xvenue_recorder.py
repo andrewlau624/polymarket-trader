@@ -44,7 +44,8 @@ def get(url, params=None, tries=5):
     delay = 1.0
     for i in range(tries):
         try:
-            with urllib.request.urlopen(url, timeout=20) as r:
+            req = urllib.request.Request(url, headers={"User-Agent": "trading-lab-research/1.0"})
+            with urllib.request.urlopen(req, timeout=20) as r:
                 return json.load(r)
         except urllib.error.HTTPError as e:
             if e.code == 404:
