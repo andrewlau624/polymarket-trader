@@ -130,5 +130,48 @@ def main():
     print(c.sql(f"SELECT count(*) FROM read_parquet('{D}/entries.parquet')").fetchall())
 
 
+
+
+def build_slow(delay=60):
+    """Holdout-only SLOW-FILL entries for the frozen cells: the first aggressive buy
+    in a cell at least `delay` seconds after the cell's first one - a price that
+    was still there for a bot that did not react first."""
+    import json
+    from scan import SPLIT
+    cells = json.load(open("hunt/frozen.json"))["cells"]
+    c = duckdb.connect()
+    c.sql("SET memory_limit='10GB'; SET threads=8; SET preserve_insertion_order=false; SET enable_progress_bar=false")
+    c.sql(f"SET temp_directory='{D}/tmp'")
+    c.sql("CREATE TABLE fz AS SELECT * FROM (VALUES " +
+          ", ".join(f"('{x['cat']}', {x['band']}, {x['hb']})" for x in cells) + ") v(cat, band, hb)")
+    band = "CASE " + " ".join(f"WHEN price < {b} THEN {i}" for i, b in enumerate(BANDS[1:])) + " ELSE 99 END"
+    hrs = "CASE " + " ".join(f"WHEN h < {b} THEN {i}" for i, b in enumerate(HOURS[1:])) + " ELSE 99 END"
+    c.sql(f"""
+    COPY (
+      WITH t AS (
+        SELECT tr.market_id, m.cat,
+               CASE WHEN tr.taker_direction = 'BUY' THEN tr.nonusdc_side
+                    WHEN tr.nonusdc_side = 'token1' THEN 'token2' ELSE 'token1' END AS tok,
+               CASE WHEN tr.taker_direction = 'BUY' THEN tr.price ELSE 1 - tr.price END AS price,
+               tr.usd_amount AS usd, tr.timestamp, (m.t_end - tr.timestamp) / 3600.0 AS h
+        FROM read_parquet('{D}/trades.parquet') tr JOIN read_parquet('{D}/mk.parquet') m USING (market_id)
+        WHERE m.t_end >= {SPLIT} AND tr.price > 0 AND tr.price < 1
+          AND m.cat IN (SELECT DISTINCT cat FROM fz)
+      ), b AS (
+        SELECT *, {band} AS band, {hrs} AS hb FROM t
+      ), k AS (
+        SELECT b.* FROM b JOIN fz USING (cat, band, hb)
+      ), w AS (
+        SELECT *, min(timestamp) OVER (PARTITION BY market_id, tok, band, hb) AS t0 FROM k
+      )
+      SELECT market_id, tok, band, hb, arg_min(price, timestamp) AS price, min(timestamp) AS ts,
+             arg_min(usd, timestamp) AS usd, arg_min(h, timestamp) AS h
+      FROM w WHERE timestamp >= t0 + {delay} GROUP BY ALL
+    ) TO '{D}/entries_slow.parquet' (FORMAT parquet)""")
+    print(c.sql(f"SELECT count(*) FROM read_parquet('{D}/entries_slow.parquet')").fetchall())
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    sys.path.insert(0, "hunt")
+    build_slow() if "--slow" in sys.argv else main()

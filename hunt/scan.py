@@ -33,12 +33,12 @@ HOURS = [0, 1, 6, 24, 72, 168, 720, 10 ** 6]
 FEE = 0.0695
 
 
-def load(c, holdout):
+def load(c, holdout, src="entries"):
     cmp = ">=" if holdout else "<"
     return c.sql(f"""
       SELECT e.market_id, e.tok, e.band, e.hb, e.price, e.usd, m.cat, m.event_id, m.t_end,
              (e.tok = m.winner)::INT AS won
-      FROM read_parquet('{D}/entries.parquet') e JOIN read_parquet('{D}/mk.parquet') m USING (market_id)
+      FROM read_parquet('{D}/{src}.parquet') e JOIN read_parquet('{D}/mk.parquet') m USING (market_id)
       WHERE m.t_end {cmp} {SPLIT}""").df()
 
 
@@ -92,21 +92,27 @@ def main():
     c = duckdb.connect()
     if a.holdout:
         frozen = json.load(open(FROZEN))
-        df = load(c, holdout=True)
-        out = []
-        for f in frozen["cells"]:
-            g = df[(df.cat == f["cat"]) & (df.band == f["band"]) & (df.hb == f["hb"])]
-            if g.event_id.nunique() < 5:
-                print(f"  {label(f['cat'], f['band'], f['hb'])}: too few holdout events ({g.event_id.nunique()})")
-                continue
-            s = cell_stats(g)
-            s.update(cat=f["cat"], band=f["band"], hb=f["hb"], train=f["ret_per_usd"],
-                     passed=bool(s["events"] >= 30 and s["lo"] > 0))
-            out.append(s)
-        out.sort(key=lambda s: -s["lo"])
-        show(out, f"HOLDOUT ({len(out)} frozen cells graded)", k=len(out))
-        print("\n  PASSED: " + (", ".join(label(s['cat'], s['band'], s['hb']) for s in out if s["passed"]) or "none"))
-        json.dump(out, open("research/pmdata/holdout_results.json", "w"), indent=1)
+        res = {}
+        for src in ("entries", "entries_slow"):
+            df = load(c, holdout=True, src=src)
+            out = []
+            for f in frozen["cells"]:
+                g = df[(df.cat == f["cat"]) & (df.band == f["band"]) & (df.hb == f["hb"])]
+                if g.event_id.nunique() < 5:
+                    print(f"  [{src}] {label(f['cat'], f['band'], f['hb'])}: too few holdout events "
+                          f"({g.event_id.nunique()})")
+                    continue
+                s = cell_stats(g)
+                s.update(cat=f["cat"], band=f["band"], hb=f["hb"], train=f["ret_per_usd"],
+                         passed=bool(s["events"] >= 30 and s["lo"] > 0))
+                out.append(s)
+            out.sort(key=lambda s: -s["lo"])
+            show(out, f"HOLDOUT [{src}] ({len(out)} frozen cells graded)", k=len(out))
+            res[src] = {(s["cat"], s["band"], s["hb"]): s for s in out}
+        both = [k for k, s in res["entries"].items() if s["passed"] and res["entries_slow"].get(k, {}).get("passed")]
+        print("\n  PASSED BOTH: " + (", ".join(label(*k) for k in both) or "none"))
+        json.dump({src: list(v.values()) for src, v in res.items()},
+                  open("research/pmdata/holdout_results.json", "w"), indent=1)
         return
     df = load(c, holdout=False)
     print(f"TRAIN: {len(df):,} entries on {df.market_id.nunique():,} markets, {df.event_id.nunique():,} events")
