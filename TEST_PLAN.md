@@ -329,3 +329,31 @@ Then live trading starts at $100–200 per venue with these limits:
     - "PAID but credit only" is reported as a partial result.
   - **KILL:** any earnings row withheld or flagged for abuse, or every row SKIPPED
     after two periods.
+
+- **2026-10-01, before any live data was recorded:** added **T3, table tennis in play:
+  model price vs the US book**.
+  - **Data:** `hunt/tt_live.py` polls every live table-tennis event about every 2–5 s.
+    For each one it records the venue's own score (`/v1/events/{id}`: game-by-game
+    points, `period` S1..S5) and the moneyline book, fetched back to back.
+  - **Model (fixed now):**
+    - Take p0 = the last pre-start mid.
+    - Solve for the per-point probability q that makes P(win best-of-5, games to 11
+      win by 2) = p0. Serve is ignored; the standard 11-point model makes the server
+      irrelevant to game probability (arXiv 1109.6628).
+    - Then P(win | games, points) comes from that q.
+  - **Leader / lag diagnostic:** at every poll where the score changes, compare the book
+    mid at that poll with the previous poll and with the next 3 polls. Report the share
+    of point changes and of game changes where the book had *already* moved more than
+    half of its eventual move before the score showed the change.
+  - **Entry:** at a poll where the score just changed, buy side X at the ask when
+    `model(X) − (ask + 0.0695·ask(1−ask)) ≥ 0.05`.
+    - Polymarket state must be OPEN, ask size ≥ 10, and at most one entry per
+      (match, game number).
+  - **Scored:**
+    - (a) markout: sell into the bid 30 s and 120 s later, fee paid again;
+    - (b) hold to the venue's settlement.
+  - **Bootstrap unit:** the match.
+  - **PASS:** ≥ 150 entries on ≥ 75 matches, (b) 95% CI per $ above 0, both
+    chronological halves positive, and (a) at 120 s with mean > 0.
+  - **KILL:** if, after 200 matches, the book leads the score on > 80% of game changes
+    (no lag to exploit).
