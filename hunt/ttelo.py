@@ -8,6 +8,7 @@ per match; marketSides[].long names the player the book is quoted in.
 """
 
 import argparse
+import calendar
 import glob
 import json
 import math
@@ -106,7 +107,7 @@ def last_quotes(cutoff_s=60):
             st = r.get("start")
             if not st:
                 continue
-            t0 = time.mktime(time.strptime(st[:19], "%Y-%m-%dT%H:%M:%S")) - time.timezone
+            t0 = calendar.timegm(time.strptime(st[:19], "%Y-%m-%dT%H:%M:%S"))
             if r["t"] <= t0 - cutoff_s and r["q"][4] == "MARKET_STATE_OPEN":
                 if r["slug"] not in best or r["t"] > best[r["slug"]]["t"]:
                     best[r["slug"]] = r

@@ -12,6 +12,7 @@ in the long team. Both are read from the record, never assumed.
 """
 
 import argparse
+import calendar
 import glob
 import json
 import os
@@ -32,6 +33,8 @@ REC = os.path.join("research", "ttlive", "rec-*.jsonl")
 NICHE = os.path.join("research", "niche", "rec-*.jsonl")
 SETTLE = os.path.join("research", "ttlive", "settle.json")
 EDGE, FEE, MIN_ASK_SZ = 0.05, 0.0695, 10
+T6_START = 1790879715          # TEST_PLAN.md T6: only rows recorded after registration count
+T6_JUMP, T6_STILL, T6_HOLD, T6_GAP = 0.04, 0.005, 30, 6
 GAMES_TO_WIN = 3
 
 
@@ -121,7 +124,7 @@ def prestart_mids():
             if q[0] is None or q[2] is None or q[4] != "MARKET_STATE_OPEN":
                 continue
             try:
-                st = time.mktime(time.strptime(r["start"][:19], "%Y-%m-%dT%H:%M:%S")) - time.timezone
+                st = calendar.timegm(time.strptime(r["start"][:19], "%Y-%m-%dT%H:%M:%S"))
             except (TypeError, ValueError):
                 continue
             if r["t"] < st and (r["slug"] not in out or r["t"] > out[r["slug"]][0]):
@@ -142,6 +145,71 @@ def p0_for(slug, rows, pre):
 
 def mid(q):
     return (q[0] + q[2]) / 2 if q and q[0] is not None and q[2] is not None else None
+
+
+# --- T6: buy the scorer while the book lags, sell 30 s later ----------------
+def t6_trades(by, pre):
+    out = []
+    for slug, rows in by.items():
+        rows = [r for r in rows if r["t"] >= T6_START]
+        if len(rows) < 3:
+            continue
+        p0 = p0_for(slug, by[slug], pre)
+        if p0 is None or not 0.03 < p0 < 0.97:
+            continue
+        q = solve_q(p0)
+        busy_until = 0.0
+        for i in range(1, len(rows)):
+            a, b = rows[i - 1], rows[i]
+            if b["t"] - a["t"] > T6_GAP or b["t"] < busy_until:
+                continue
+            flip = b["long_id"] != b["teams"][0]
+            sa, sb = parse(a["score"], flip), parse(b["score"], flip)
+            ma, mb = mid(a["q"]), mid(b["q"])
+            if None in (sa, sb, ma, mb) or sa == sb or abs(mb - ma) >= T6_STILL:
+                continue
+            jump = p_match(q, *sb) - p_match(q, *sa)
+            if abs(jump) < T6_JUMP or b["q"][4] != "MARKET_STATE_OPEN":
+                continue
+            bid, bsz, ask, asz, _ = b["q"]
+            long_side = jump > 0
+            cost, size = (ask, asz) if long_side else ((None if bid is None else 1 - bid), bsz)
+            if cost is None or size < MIN_ASK_SZ or not 0 < cost < 1:
+                continue
+            ex = next((x for x in rows[i + 1:] if x["t"] >= b["t"] + T6_HOLD), None)
+            if not ex or ex["t"] > b["t"] + T6_HOLD + 30:
+                continue
+            xq = ex["q"]
+            px = xq[0] if long_side else (None if xq[2] is None else 1 - xq[2])
+            if px is None:
+                continue
+            out.append({"t": b["t"], "game": slug, "cost": cost,
+                        "pnl": px - cost - FEE * cost * (1 - cost) - FEE * px * (1 - px)})
+            busy_until = ex["t"]
+    return out
+
+
+def t6_report(by, pre):
+    tr = t6_trades(by, pre)
+    print(f"
+T6  SCORER WHILE THE BOOK LAGS, EXIT 30 s | rows from t >= {T6_START} only")
+    if not tr:
+        print("  no trades yet")
+        return
+    grp = defaultdict(list)
+    for x in tr:
+        grp[x["game"]].append(x["pnl"])
+    gs = list(grp.values())
+    rng = np.random.default_rng(6)
+    boots = [np.mean([v for g in (gs[j] for j in rng.integers(0, len(gs), len(gs))) for v in g]) for _ in range(2000)]
+    lo, hi = np.percentile(boots, [2.5, 97.5])
+    tr.sort(key=lambda x: x["t"])
+    h = len(tr) // 2
+    print(f"  {len(tr)} trades on {len(gs)} matches | mean {np.mean([x['pnl'] for x in tr]):+.4f}/share "
+          f"[{lo:+.4f}, {hi:+.4f}] | win {np.mean([x['pnl'] > 0 for x in tr]):.0%} | halves "
+          f"{np.mean([x['pnl'] for x in tr[:h]] or [0]):+.4f} / {np.mean([x['pnl'] for x in tr[h:]] or [0]):+.4f}")
+    print(f"  bar: >= 300 trades, >= 100 matches, CI above 0, both halves > 0 -> "
+          f"{'PASS' if len(tr) >= 300 and len(gs) >= 100 and lo > 0 and min(np.mean([x['pnl'] for x in tr[:h]]), np.mean([x['pnl'] for x in tr[h:]])) > 0 else 'not passed'}")
 
 
 # --- report ----------------------------------------------------------------
@@ -212,6 +280,7 @@ def main(argv=None):
                     break
         if mk:
             print(f"  markout {h:>3}s: n={len(mk)} mean {statistics.mean(mk):+.4f} win {sum(m > 0 for m in mk) / len(mk):.0%}")
+    t6_report(by, pre)
     if a.no_settle or not ents:
         return 0
     try:

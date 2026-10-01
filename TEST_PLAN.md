@@ -401,3 +401,27 @@ Then live trading starts at $100–200 per venue with these limits:
   every 3 h to every 4 h, and a fair value may be ≤ 4 h old (was 3 h). The reason is the
   quota: one daily names request is needed so the droplet does not depend on a 113 MB
   local file, and 6 + 1 requests a day ≈ 210 a month stays under the free 250.
+
+- **2026-10-01, T3 verdict and new T6.**
+  - **T3 FAILED its bar.** On the droplet: 200 entries on 97 matches, held to settlement
+    −1.3% per $, 95% CI [−18.5%, +14.9%].
+  - **Diagnostic.** The venue's score API showed the change before the book had made
+    half its move in 75% of 863 point changes and 65 game changes. The 30 s markout was
+    +1.27c (n = 192).
+  - **T6, pre-registered now: buy the scorer while the book lags, sell 30 s later.**
+    It is graded ONLY on `hunt/tt_live.py` rows with t ≥ **1790879715** (this
+    registration). Nothing recorded before that counts.
+    - **Trigger:** a poll where the parsed score differs from the same match's previous
+      poll (≤ 6 s earlier), and the book mid moved < 0.005 between those two polls.
+    - **Size of the jump:** jump = T3 model(now) − T3 model(previous state) for the long
+      player, with the T3 model and p0 rule unchanged. |jump| must be ≥ 0.04.
+    - **Entry:** buy the side the jump favours at its ask. Polymarket state OPEN,
+      ask size ≥ 10, at most one open trade per match.
+    - **Exit:** sell into the bid at the first poll ≥ 30 s after entry. Both taker fees
+      are charged. There is no hold to settlement.
+    - **Bootstrap unit:** the match.
+    - **PASS:** ≥ 300 trades on ≥ 100 matches, the 95% CI of mean P&L per trade above 0,
+      and positive in both chronological halves.
+    - **KILL:** mean ≤ 0 after 300 trades.
+    - **Before any money:** a live check that an order sent within ~1 s of the score
+      change fills at the recorded ask. Polling every 2.5 s is not proof of fillability.

@@ -34,3 +34,9 @@ def test_parse_counts_games_and_flips_for_the_second_team():
     assert tt.parse("12-10, 9-9", flip=False) == (1, 0, 9, 9)       # deuce game finished
     assert tt.parse("8-7", flip=False) == (0, 0, 8, 7)
     assert tt.parse("", flip=False) == (0, 0, 0, 0)
+
+
+def test_start_times_are_utc_regardless_of_local_timezone():
+    import calendar
+    import time
+    assert calendar.timegm(time.strptime("2026-10-01T07:00:00", "%Y-%m-%dT%H:%M:%S")) == 1790838000

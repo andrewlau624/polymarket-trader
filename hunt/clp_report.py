@@ -8,6 +8,7 @@ exactly. Player names come from the daily names files (or the full fixtures
 dump). Sides are matched by player NAME, never by position.
 """
 
+import calendar
 import glob
 import json
 import os
@@ -36,7 +37,7 @@ def same(a, b):
 
 
 def epoch(s):
-    return time.mktime(time.strptime(s[:19], "%Y-%m-%dT%H:%M:%S")) - time.timezone
+    return calendar.timegm(time.strptime(s[:19], "%Y-%m-%dT%H:%M:%S"))
 
 
 def main():
