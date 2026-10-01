@@ -67,7 +67,7 @@ def pm_moneylines(say):
         page = d.get("markets", [])
         out += [m for m in page if m.get("marketType") == "moneyline"
                 and m.get("slug", "").split("-")[1:2] and m["slug"].split("-")[1] in core.LEAGUES]
-        if len(page) < 500:
+        if not page:              # a page can hold 499: only an empty page is the end
             break
         i += 1
         time.sleep(0.3)
