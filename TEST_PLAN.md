@@ -238,3 +238,32 @@ Then live trading starts at $100–200 per venue with these limits:
     expectancy per $ above 0; (b) positive in both halves; and a lead–lag showing
     the international mid moves first.
   - **KILL:** if after 30 games the median 60 s markout is ≤ 0 and (b) is below 0.
+
+- **2026-10-01, before any price was compared:** added **S5, Pinnacle anchor on
+  soccer**, using the international venue's history.
+  - **Edge:** Pinnacle is the sharpest soccer book. Football-Data.co.uk publishes its
+    pre-closing (PSH/D/A) and closing (PSCH/D/A) odds for 2025/26 in 16 European
+    leagues plus MLS/MEX/BRA/ARG/JPN. If Polymarket's pre-kickoff price strays from
+    Pinnacle's and the gap predicts results, a trader watching Pinnacle live (free
+    resellers exist) can buy the cheap side.
+  - **Matching:** a Football-Data match is paired with a Polymarket event by league,
+    kickoff date and both team names. Polymarket has three yes/no markets per match
+    (home win, away win, draw); kickoff is the market end time, cross-checked with
+    Football-Data's UK-time kickoff. Unmatched or ambiguous matches are dropped.
+  - **Fair value:** Pinnacle odds de-vigged proportionally (1/odds ÷ sum).
+    "No" = 1 − "Yes".
+  - **Entry:** the first taker BUY of a Yes or No token at price p with
+    `p + 0.0695·p(1−p) ≤ fair − 0.02`, at most one per (match, token).
+    - **Primary:** fair = closing line, window kickoff −30 min to −1 min, when
+      Pinnacle is at or near its close.
+    - **Secondary:** fair = pre-closing line (collected Tue/Fri afternoons), window
+      kickoff −12 h to −1 min.
+  - **Trade:** hold to resolution.
+  - **Diagnostic (no pass bar):** Brier score of Polymarket's last price before
+    kickoff against Pinnacle's closing probability, on the same outcomes.
+  - **Bootstrap unit:** the match.
+  - **Split:** kickoffs before 2026-03-01 are reported, but the verdict comes from
+    2026-03-01 onward. There are no parameters to fit; the 2c threshold and both
+    windows are fixed here.
+  - **PASS** on matches from 2026-03-01: ≥ 100 entries on ≥ 50 matches, the 95% CI
+    of return per $ above 0, and positive in both halves of that period.
