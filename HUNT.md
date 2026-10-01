@@ -39,3 +39,62 @@ across 17 leagues (an audit of 14 random pairs found no errors). That gave
 - **No holdout verdict was possible**, because Football-Data has no Pinnacle odds
   from February 2026. The pre-registered holdout is empty. What we have points the
   wrong way, so this is not pursued with a substitute anchor.
+
+## Category × price × time scan (global dump, 1.03B fills): no tradeable survivor (2026-10-01)
+
+**Method.**
+- 2,438 cells, each one (category, price band, time-to-close bucket), with ≥ 60
+  events in train (markets closing before 2026-03-01).
+- 38 cells passed the shortlist rule. They were frozen and committed (`hunt/frozen.json`)
+  and graded once on the holdout (2026-03-01 → 2026-07-20).
+- A cell had to pass under both the first-fill entry and a 60 s slow-fill entry.
+
+**Result.** 7 passed both rules, and none survives inspection.
+
+- **Tennis favourites, ATP 95–98c, crypto launch: timing leak.** Their bucket was
+  "hours before the market's last trade". For in-play sport that leaks the outcome:
+  comebacks make matches longer, which pushes those entries out of the final-hour
+  bucket. The favourite looks underpriced only because of the look-ahead.
+- **Minor-league soccer underdogs 10–20c, 1–4 weeks out: subgroup luck.**
+  - Across all soccer that cell is fairly priced: −6.1% train, +0.4% holdout,
+    ~1,000 events.
+  - The pass came from a few small leagues lumped together, with ~$5 per fill.
+- **Crypto up/down 20–35c, 1–3 days out (+24% holdout, 287 events): not available.**
+  Polymarket US does not list these markets.
+
+**What every honest cut agrees on.**
+- **Buying at the ask loses.** Equal weight per market, almost every
+  sport/politics/culture/finance cell is −2% to −9% after the US taker fee, in both
+  periods.
+- **Late soccer longshots are the worst:** −28% to −44% for 10–35c in the final hour.
+
+**Two traps found on the way.**
+- **Weighting.** Dollar-weighted, buying favourites at 80–98c looks like +2–5%. One
+  equal entry per market, the same cells are −2% to −9%. A few giant markets (big
+  elections, Fed decisions) carry the dollar-weighted number.
+- **Scheduled end dates.** Esports `end_date` is often hours *after* the match ends.
+  "Hours to scheduled end" therefore includes post-decision junk fills (5–40 shares at
+  1c), which explode equal-weighted returns.
+
+**Resting orders (maker side).** Across all fills, resting orders earned +0.53%
+(train) and +0.50% (holdout) per $ including the US maker rebate, dollar-weighted. That
+is the spread. No category-level maker edge survived both the scheduled-time and the
+equal-weight checks cleanly.
+
+## Following skilled wallets: FAILED (2026-10-01)
+
+**Selection.** 9,975 taker wallets with ≥ 30 events and t ≥ 3 on markets resolving
+2025-01-01 → 2026-02-28, frozen in `hunt/skilled.json` before the test.
+
+**Holdout (markets resolving from 2026-03-01).** Each wallet's first aggressive buy of
+a token was copied at the first aggressive-buy price by anyone ≥ DELAY seconds later,
+held to resolution, with the US taker fee.
+
+| | entries | events | return per $ | 95% CI |
+|---|---:|---:|---:|---:|
+| follow, 60 s | 247,994 | 52,010 | −0.97% | [−1.10%, −0.85%] |
+| follow, 10 min | 225,101 | 49,441 | −1.18% | [−1.33%, −1.05%] |
+| placebo (random buy, same markets) | 318,182 | 58,293 | +1.48% | [+1.36%, +1.61%] |
+
+Copying loses, and loses to random. This matches polymarket-sharps (no lag beat a
+placebo).

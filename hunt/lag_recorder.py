@@ -125,7 +125,8 @@ def main(argv=None):
                 return 0
         live = [g for g in games if ts(g["start"]) - timedelta(hours=a.ahead) <= now]
         if not live:
-            time.sleep(30)
+            print(f"  {now.isoformat()[11:19]} none of {len(games)} paired games in the window yet", flush=True)
+            time.sleep(60)
             continue
         fp = os.path.join(OUT, f"rec-{now.date().isoformat()}.jsonl")
         with open(fp, "a") as fh:
