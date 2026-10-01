@@ -139,3 +139,27 @@ depend on how long the match runs.
 - Fill risk: we own a longshot at 0.1c, so the loss is capped at the collateral.
 - It needs a real test, because two things cannot be read off the API: whether 0.1c
   bids are treated as abuse, and whether rewards arrive as cash or as promo credit.
+
+## T4 — tennis Elo vs pre-match ask: FAILED (2026-10-01)
+
+**Sample.** 14,757 single-match markets (ATP, WTA, ITF). Prices were the last
+aggressive buy in the 6 h before the scheduled start. K = 48 was chosen on train.
+
+- **Price beats rating.** Brier on the holdout was price mid **0.2099** against Elo
+  **0.2371** (2,832 matches). The dump's tennis history is too short to rate players
+  well.
+- **Entries at a ≥ 5c Elo edge:**
+  - ATP holdout −7.6% [−14.8%, −0.4%], n = 1,201;
+  - WTA holdout +0.0% [−9.6%, +9.4%], n = 718;
+  - ITF holdout n = 41, too few to grade (+24.6% [−13.6%, +60.2%]).
+
+## Live tests in progress (2026-10-01)
+
+- **T3, table tennis in play.** `hunt/tt_live.py` records the venue's own score
+  (`/v1/events/{id}`: game-by-game points) beside the book, 0.04 s apart, ~2.5 s per
+  match, around the clock.
+- **T2, table tennis pre-match.** Elo vs recorded pre-start books; it waits for
+  settlements.
+- **S4, international book vs US.** On lower-tier CS2 the international book was the
+  *thinner* one (34/68c vs US 71/72c). The real test is major-league games tonight.
+- **Hourly check-in** grades all three against their pre-registered bars.
