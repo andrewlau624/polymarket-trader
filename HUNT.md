@@ -163,3 +163,18 @@ aggressive buy in the 6 h before the scheduled start. K = 48 was chosen on train
 - **S4, international book vs US.** On lower-tier CS2 the international book was the
   *thinner* one (34/68c vs US 71/72c). The real test is major-league games tonight.
 - **Hourly check-in** grades all three against their pre-registered bars.
+
+## Esports bo3 coherence on Polymarket US: no violation (2026-10-01)
+
+**What US lists per bo3:** the series winner, ONE −1.5 series handicap (long = "A wins
+2–0") and total maps over 2.5.
+
+**Bundles that pay ≥ $1 in every outcome:**
+- (i) A wins + not A 2–0;
+- (ii) not A 2–0 + under 2.5;
+- (iii) A 2–0 + over 2.5 + B wins.
+
+**Result.** 36 checks across 13 open matches, all pre-match. At asks after fees, every
+bundle cost $1.26–$1.64. That is consistent pricing: each bundle pays $1 or $2, so a
+coherent price sits between the two. Nothing was under $1. This is not pursued unless an
+in-play check is ever cheap to add (`hunt/esports_arb.py`).
