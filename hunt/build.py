@@ -9,13 +9,17 @@ Outputs research/pmdata/mk.parquet       one row per binary market that resolved
                                          0.995/0.9995 rather than 1, and unresolved
                                          junk as 0.9/0.1 or 0.5, so a side >= 0.99
                                          is the winner and anything else is dropped
-        research/pmdata/entries.parquet  the FIRST taker BUY of each token in each
-                                         (price band, hours-before-close bucket):
-                                         a price someone actually paid, i.e. a
-                                         fillable ask, never a mid or a last print
+        research/pmdata/entries.parquet  the FIRST aggressive buy of each token in
+                                         each (price band, hours-before-close)
+                                         bucket: a price someone actually paid at
+                                         the ask, never a mid or a last print
 
-Taker BUY only: a taker buying token X at p crossed X's ask at p. Using taker
-SELLs too would mix in bid prices.
+Every fill is one aggressive buy. The taker is the aggressor, and the exchange
+mints and merges complementary orders, so the dump records most aggressive
+YES buys as 'taker SELL token2 at q' (in May 2026, all of them). Both carry the
+same P&L, so the taker bought token X at p if it says BUY X at p, and bought
+the OTHER token at 1 - p if it says SELL X at p. Counting only taker BUYs keeps
+~25% of the asks and none from May 2026 on.
 """
 
 import duckdb
@@ -75,7 +79,7 @@ END"""
 
 def main():
     c = duckdb.connect()
-    c.sql("SET memory_limit='10GB'; SET threads=8; SET preserve_insertion_order=false")
+    c.sql("SET memory_limit='10GB'; SET threads=8; SET preserve_insertion_order=false; SET enable_progress_bar=false")
     c.sql(f"SET temp_directory='{D}/tmp'")
     print("markets ...", flush=True)
     c.sql(f"""
@@ -109,10 +113,13 @@ def main():
     c.sql(f"""
     COPY (
       WITH t AS (
-        SELECT tr.market_id, tr.nonusdc_side AS tok, tr.price, tr.usd_amount, tr.timestamp,
-               (m.t_end - tr.timestamp) / 3600.0 AS h
+        SELECT tr.market_id,
+               CASE WHEN tr.taker_direction = 'BUY' THEN tr.nonusdc_side
+                    WHEN tr.nonusdc_side = 'token1' THEN 'token2' ELSE 'token1' END AS tok,
+               CASE WHEN tr.taker_direction = 'BUY' THEN tr.price ELSE 1 - tr.price END AS price,
+               tr.usd_amount, tr.timestamp, (m.t_end - tr.timestamp) / 3600.0 AS h
         FROM read_parquet('{D}/trades.parquet') tr JOIN mk2 m USING (market_id)
-        WHERE tr.taker_direction = 'BUY' AND tr.price > 0 AND tr.price < 1
+        WHERE tr.price > 0 AND tr.price < 1
       )
       SELECT market_id, tok, {band} AS band, {hrs} AS hb,
              arg_min(price, timestamp) AS price, min(timestamp) AS ts,

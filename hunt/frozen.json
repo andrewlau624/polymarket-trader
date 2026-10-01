@@ -1,0 +1,311 @@
+{
+ "frozen_at": "see git log",
+ "rule": "lo > 0 and both train halves > 0, >= 60 events",
+ "cells": [
+  {
+   "cat": "sport_nba",
+   "band": 1,
+   "hb": 0,
+   "ret_per_usd": 1.8267536218460227,
+   "lo": 0.8941621991606813,
+   "events": 297
+  },
+  {
+   "cat": "sport_other",
+   "band": 0,
+   "hb": 6,
+   "ret_per_usd": 1.4571187558014218,
+   "lo": 0.6330445162965391,
+   "events": 238
+  },
+  {
+   "cat": "weather_high",
+   "band": 3,
+   "hb": 0,
+   "ret_per_usd": 1.2115423527120022,
+   "lo": 0.5150350411407634,
+   "events": 74
+  },
+  {
+   "cat": "crypto_updown",
+   "band": 2,
+   "hb": 3,
+   "ret_per_usd": 1.0516566477042393,
+   "lo": 0.3714376121096614,
+   "events": 127
+  },
+  {
+   "cat": "mentions",
+   "band": 2,
+   "hb": 5,
+   "ret_per_usd": 1.0691005882050606,
+   "lo": 0.2601382964193788,
+   "events": 72
+  },
+  {
+   "cat": "weather_high",
+   "band": 4,
+   "hb": 0,
+   "ret_per_usd": 0.6319301845255764,
+   "lo": 0.22532358454794868,
+   "events": 70
+  },
+  {
+   "cat": "sport_soccer_minor",
+   "band": 3,
+   "hb": 5,
+   "ret_per_usd": 0.6924041296889067,
+   "lo": 0.2236492581102772,
+   "events": 100
+  },
+  {
+   "cat": "sport_nba",
+   "band": 0,
+   "hb": 1,
+   "ret_per_usd": 0.5317710997708728,
+   "lo": 0.17001453681200765,
+   "events": 2296
+  },
+  {
+   "cat": "weather_high",
+   "band": 6,
+   "hb": 0,
+   "ret_per_usd": 0.2647517100897307,
+   "lo": 0.12097206900660444,
+   "events": 69
+  },
+  {
+   "cat": "crypto_level",
+   "band": 3,
+   "hb": 5,
+   "ret_per_usd": 0.22345441213499295,
+   "lo": 0.09473549562247462,
+   "events": 496
+  },
+  {
+   "cat": "esport_lol",
+   "band": 1,
+   "hb": 1,
+   "ret_per_usd": 0.4664782569009191,
+   "lo": 0.0933779944268701,
+   "events": 698
+  },
+  {
+   "cat": "geopolitics",
+   "band": 4,
+   "hb": 2,
+   "ret_per_usd": 0.24531270126035676,
+   "lo": 0.0802609490608271,
+   "events": 318
+  },
+  {
+   "cat": "people_events",
+   "band": 2,
+   "hb": 6,
+   "ret_per_usd": 1.991343142473616,
+   "lo": 0.07665786395831882,
+   "events": 89
+  },
+  {
+   "cat": "esport_val",
+   "band": 7,
+   "hb": 0,
+   "ret_per_usd": 0.11748238974173382,
+   "lo": 0.053266376753574825,
+   "events": 132
+  },
+  {
+   "cat": "weather_high",
+   "band": 7,
+   "hb": 0,
+   "ret_per_usd": 0.12070668447486763,
+   "lo": 0.044332582402595605,
+   "events": 110
+  },
+  {
+   "cat": "esport_cs2",
+   "band": 1,
+   "hb": 2,
+   "ret_per_usd": 1.8195660909278335,
+   "lo": 0.04162539821845724,
+   "events": 70
+  },
+  {
+   "cat": "geopolitics",
+   "band": 3,
+   "hb": 2,
+   "ret_per_usd": 0.2492112420507686,
+   "lo": 0.035691351719926614,
+   "events": 340
+  },
+  {
+   "cat": "sport_itsb",
+   "band": 8,
+   "hb": 3,
+   "ret_per_usd": 0.10177318808777432,
+   "lo": 0.03452975419030262,
+   "events": 68
+  },
+  {
+   "cat": "sport_wta",
+   "band": 7,
+   "hb": 0,
+   "ret_per_usd": 0.057838154106835155,
+   "lo": 0.019519708889930112,
+   "events": 385
+  },
+  {
+   "cat": "sport_uel",
+   "band": 8,
+   "hb": 0,
+   "ret_per_usd": 0.07349774986553567,
+   "lo": 0.017392925997152968,
+   "events": 101
+  },
+  {
+   "cat": "crypto_updown",
+   "band": 3,
+   "hb": 3,
+   "ret_per_usd": 0.2529034961964736,
+   "lo": 0.017008707708753675,
+   "events": 199
+  },
+  {
+   "cat": "sport_atp",
+   "band": 7,
+   "hb": 0,
+   "ret_per_usd": 0.058780388574323175,
+   "lo": 0.01684188782870416,
+   "events": 427
+  },
+  {
+   "cat": "sport_uel",
+   "band": 9,
+   "hb": 0,
+   "ret_per_usd": 0.04770396603751505,
+   "lo": 0.01587499427968768,
+   "events": 99
+  },
+  {
+   "cat": "geopolitics",
+   "band": 8,
+   "hb": 0,
+   "ret_per_usd": 0.08499660765859073,
+   "lo": 0.013249030221795306,
+   "events": 62
+  },
+  {
+   "cat": "sport_wta",
+   "band": 8,
+   "hb": 0,
+   "ret_per_usd": 0.043883104318979065,
+   "lo": 0.011079849943029112,
+   "events": 381
+  },
+  {
+   "cat": "sport_itsb",
+   "band": 7,
+   "hb": 0,
+   "ret_per_usd": 0.10066903141253954,
+   "lo": 0.009529647110699329,
+   "events": 106
+  },
+  {
+   "cat": "crypto_updown",
+   "band": 4,
+   "hb": 3,
+   "ret_per_usd": 0.12240871617034738,
+   "lo": 0.009488601370845949,
+   "events": 543
+  },
+  {
+   "cat": "sport_ucl",
+   "band": 11,
+   "hb": 0,
+   "ret_per_usd": 0.008690633663164167,
+   "lo": 0.0076498062785866254,
+   "events": 125
+  },
+  {
+   "cat": "weather_high",
+   "band": 5,
+   "hb": 0,
+   "ret_per_usd": 0.2634763613780745,
+   "lo": 0.006867475927156617,
+   "events": 75
+  },
+  {
+   "cat": "geopolitics",
+   "band": 10,
+   "hb": 0,
+   "ret_per_usd": 0.02292148064230742,
+   "lo": 0.006561175259480532,
+   "events": 177
+  },
+  {
+   "cat": "sport_uef",
+   "band": 11,
+   "hb": 0,
+   "ret_per_usd": 0.007521322715928561,
+   "lo": 0.006050642188441444,
+   "events": 77
+  },
+  {
+   "cat": "esport_sc2",
+   "band": 11,
+   "hb": 0,
+   "ret_per_usd": 0.007350315694134518,
+   "lo": 0.004569393151125458,
+   "events": 157
+  },
+  {
+   "cat": "crypto_launch",
+   "band": 10,
+   "hb": 2,
+   "ret_per_usd": 0.02353472837057617,
+   "lo": 0.0037037474005969387,
+   "events": 85
+  },
+  {
+   "cat": "sport_crint",
+   "band": 11,
+   "hb": 0,
+   "ret_per_usd": 0.007107473096763699,
+   "lo": 0.003324991586641699,
+   "events": 447
+  },
+  {
+   "cat": "sport_atp",
+   "band": 10,
+   "hb": 0,
+   "ret_per_usd": 0.01018831048375772,
+   "lo": 0.002647900119131535,
+   "events": 842
+  },
+  {
+   "cat": "crypto_launch",
+   "band": 11,
+   "hb": 0,
+   "ret_per_usd": 0.0021380293033876987,
+   "lo": 0.0017377245434779577,
+   "events": 117
+  },
+  {
+   "cat": "geopolitics",
+   "band": 11,
+   "hb": 0,
+   "ret_per_usd": 0.0031643959091558695,
+   "lo": 0.0016406463200954056,
+   "events": 982
+  },
+  {
+   "cat": "esport_cs2",
+   "band": 10,
+   "hb": 0,
+   "ret_per_usd": 0.007997179903169453,
+   "lo": 0.0010552580587079691,
+   "events": 1266
+  }
+ ],
+ "holdout_rule": "Graded once on markets whose last trade is >= 2026-03-01. A cell PASSES only if BOTH (a) first-fill entries and (b) SLOW-FILL entries (first fill in the cell at least 60 s after the cell's first fill, i.e. a price a slower bot could still get) have >= 30 events and 95% CI lower bound > 0."
+}
