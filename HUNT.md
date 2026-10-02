@@ -197,3 +197,22 @@ idea has hit.
 **What links S4, S2b and T5:** Polymarket US's book *follows* bigger or better-informed
 books (the international venue, Kalshi, bet365). Each is now being measured on forward
 data against a bar fixed in advance.
+
+## Day 3 on the droplet (2026-10-02)
+
+- **S4 international → US** (61 games, 34 h).
+  - Lead–lag is now clear: corr(next US move, international move now) is **+0.130**,
+    against +0.003 the other way, so the international book LEADS.
+  - The tradeable part has faded. Markout at 60 s is −0.22c and at 300 s +1.11c
+    (median ~0, 50% win), on 74 entries across 15 games.
+  - Held to settlement: +55% [+14%, +119%] on 15 games. With markouts near zero that is
+    mostly outcome luck on a handful of games. If it formally clears the 20-game bar on
+    settlement alone, it is reported as a pass that needs confirmation, not as an edge.
+- **S2b Kalshi leads, short hold:** 13 trades on 3 games, −3.2c, 8% win. It is heading
+  where T6 went: the follow move is smaller than spread plus fees.
+- **T5 Czech Liga Pro:** bet365 is still the better predictor (Brier 0.276 vs 0.287 on 55
+  matches), but there are only 4 entries in 2 days at the pre-registered 4c edge.
+- **S3:** 8 fills, −1.3c [−3.9, +0.8]. **S1:** dead.
+- **Ops.** `tt_report.py` was killed for running out of memory, and the table-tennis
+  recorder is retired. Snapshot pairs fetched more than 2 s apart are now dropped (one
+  was 123 s apart).

@@ -19,7 +19,7 @@ start() {   # start <log> <script> [args...]  - unless that script is already ru
   nohup "$PY" "$@" >> "$log" 2>&1 &
 }
 
-start research/ttlive/run.log hunt/tt_live.py --minutes 1000000
+# tt_live retired 2026-10-02: T3 failed and T6 was killed (HUNT.md)
 start research/niche/run.log  hunt/niche_recorder.py --minutes 1000000
 start research/lag/run.log    hunt/lag_recorder.py --minutes 1000000 --ahead 3
 start research/clp/map.log    hunt/clp_map.py --loop 20

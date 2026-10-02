@@ -444,3 +444,8 @@ Then live trading starts at $100–200 per venue with these limits:
   - **PASS:** at 300 s, ≥ 300 trades on ≥ 40 games, the 95% CI of mean P&L per trade
     above 0, and both halves positive.
   - **KILL:** mean ≤ 0 after 300 trades.
+- **2026-10-02, data-quality filter for S1/S2/S2b/S3, not a rule change:** snapshot pairs
+  whose two venues were fetched more than 2 s apart are dropped. The droplet logged one
+  pair 123.5 s apart, and a gap between stale and fresh quotes is not a tradeable gap.
+- **2026-10-02:** the T3/T6 table-tennis live recorder is retired, because both tests
+  failed or were killed. Its report was also running the droplet out of memory.

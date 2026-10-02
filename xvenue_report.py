@@ -32,6 +32,7 @@ SETTLE = os.path.join("research", "xvenue", "settle.json")
 GAP_S = 600            # observations further apart than this are not "consecutive"
 S1_MIN_NET, S1_MIN_C = 0.005, 10
 S2_EDGE = 0.010
+MAX_SKEW = 2.0             # seconds between the two venues' snapshots; wider pairs can fake gaps
 S2B_START = 1790927546          # TEST_PLAN.md S2b: only rows recorded after registration count
 
 
@@ -58,6 +59,11 @@ def ci(xs, stat, reps=2000, seed=7):
 
 
 # --- S1 ------------------------------------------------------------------
+def synced(rows):
+    """Drop snapshot pairs fetched > MAX_SKEW s apart (one Kalshi reply took 123 s)."""
+    return [r for r in rows if r.get("tk") is None or abs(r["tk"] - r["tp"]) <= MAX_SKEW]
+
+
 def s1_episodes(rows):
     """[{game, dir, t, net, c, len}] for runs that pass the persistence rule."""
     runs = defaultdict(list)                       # (game, dir) -> current run
@@ -293,12 +299,15 @@ def main(argv=None):
     if not rows:
         print("no recordings yet (research/xvenue/rec-*.jsonl)")
         return 0
+    n_all = len(rows)
+    rows = synced(rows)
     pre = [r for r in rows if not r["live"]]
     live = [r for r in rows if r["live"]]
     days = max((rows[-1]["t"] - rows[0]["t"]) / 86400.0, 1e-9)
     games = {r["game"] for r in rows}
     print(f"\nKALSHI vs POLYMARKET US | {len(rows)} observations, {len(games)} games, "
           f"{days:.2f} days recorded ({len(pre)} pre-game, {len(live)} in play)")
+    print(f"  dropped {n_all - len(rows)} snapshot pairs fetched > {MAX_SKEW:.0f} s apart")
     skew = [abs(r["tk"] - r["tp"]) for r in rows if r.get("tk")]
     if skew:
         print(f"  venues fetched {statistics.median(skew):.2f}s apart (median), "

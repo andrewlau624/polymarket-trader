@@ -564,13 +564,13 @@ hunt-up:
 
 hunt-status:
 	@crontab -l 2>/dev/null | grep -q hunt_cycle && echo "cron: hunt_cycle installed" || echo "!! no hunt_cycle cron line"
-	@for s in tt_live niche_recorder lag_recorder clp_map clp_odds; do \
+	@for s in niche_recorder lag_recorder clp_map clp_odds; do \
 	  pgrep -f "hunt/$$s.py" >/dev/null && echo "  running  $$s" || echo "  STOPPED  $$s"; done
 	@du -sh research/ttlive research/niche research/lag research/clp 2>/dev/null
 	@df -h . | tail -1
 
 hunt-report:
-	@$(PY) hunt/tt_report.py; $(PY) hunt/ttelo.py --grade; $(PY) hunt/lag_report.py; $(PY) hunt/clp_report.py
+	@$(PY) hunt/ttelo.py --grade; $(PY) hunt/lag_report.py; $(PY) hunt/clp_report.py
 
 # xvenue: Kalshi vs Polymarket US on the same games (TEST_PLAN.md)
 xvenue:
