@@ -178,3 +178,22 @@ aggressive buy in the 6 h before the scheduled start. K = 48 was chosen on train
 bundle cost $1.26–$1.64. That is consistent pricing: each bundle pays $1 or $2, so a
 coherent price sits between the two. Nothing was under $1. This is not pursued unless an
 in-play check is ever cheap to add (`hunt/esports_arb.py`).
+
+## Day 2 on the droplet (2026-10-02)
+
+| test | sample | result | status |
+|---|---|---|---|
+| T6 scorer while the book lags, exit 30 s | 1,813 trades, 196 matches | −0.0735/share [−0.0931, −0.0573], 28% win | **KILLED** |
+| T3 table-tennis model, held | 442 trades, 214 matches | −0.8% per $ [−12.7%, +10.6%] | **FAILED** |
+| S1 Kalshi locked pair | 135,448 snapshots | 32 above zero, best +0.12c | dead |
+| S4 international book → US | 45 entries, **7 games** | 60 s markout +1.33c, 300 s +3.07c (70% win); held +26% [+16%, +36%] | promising, n too small (bar is 20 games) |
+| Kalshi lead–lag | 8,349 gaps ≥ 2c | Polymarket did 87% of the closing | → S2b registered (short hold, forward data only) |
+| T5 Czech Liga Pro vs bet365 | 45 settled | Brier bet365 0.2662 vs Polymarket 0.2787; 3 entries | precondition met, n too small |
+
+**Why T6 died.** The score API does lead the book, but the price step after one point is
+smaller than the spread plus two fees (~5–7c). That is the same wall every in-play
+idea has hit.
+
+**What links S4, S2b and T5:** Polymarket US's book *follows* bigger or better-informed
+books (the international venue, Kalshi, bet365). Each is now being measured on forward
+data against a bar fixed in advance.

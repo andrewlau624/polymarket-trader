@@ -32,6 +32,7 @@ SETTLE = os.path.join("research", "xvenue", "settle.json")
 GAP_S = 600            # observations further apart than this are not "consecutive"
 S1_MIN_NET, S1_MIN_C = 0.005, 10
 S2_EDGE = 0.010
+S2B_START = 1790927546          # TEST_PLAN.md S2b: only rows recorded after registration count
 
 
 def load(pattern=REC):
@@ -197,6 +198,62 @@ def per_dollar(trades):
     return sum(t["pnl"] for t in trades) / staked if staked else 0.0
 
 
+# --- S2b: Kalshi leads, short hold on Polymarket --------------------------
+def s2b_trades(rows, hold):
+    """Buy on Polymarket when its ask sits >= 1c (after fee) under Kalshi's mid; sell
+    into Polymarket's bid at the first observation of that game >= hold s later."""
+    by = defaultdict(list)
+    for r in rows:
+        if r["t"] >= S2B_START and not r["live"]:
+            by[r["game"]].append(r)
+    out = []
+    for g, obs in by.items():
+        busy = {}
+        for i, r in enumerate(obs):
+            for team, venue, how, px, fv, c in core.cheap_entries(r, S2_EDGE):
+                if venue != "pm" or r["t"] < busy.get(team, 0):
+                    continue
+                ex = next((x for x in obs[i + 1:] if x["t"] >= r["t"] + hold), None)
+                if not ex or ex["t"] > r["t"] + hold + 900 or not ex.get("pm"):
+                    continue
+                q = ex["pm"]
+                bid = q[0] if team == "L" else (None if q[2] is None else 1 - q[2])
+                if bid is None or q[4] != "MARKET_STATE_OPEN":
+                    continue
+                out.append({"t": r["t"], "game": g,
+                            "pnl": bid - px - core.pm_fee(px) - core.pm_fee(bid)})
+                busy[team] = ex["t"]
+    return out
+
+
+def s2b_report(rows):
+    print(f"\nS2b KALSHI LEADS, SHORT HOLD ON POLYMARKET | rows from t >= {S2B_START} only")
+    for hold in (300, 1800):
+        tr = s2b_trades(rows, hold)
+        if not tr:
+            print(f"  {hold:>4}s: no trades yet")
+            continue
+        grp = defaultdict(list)
+        for x in tr:
+            grp[x["game"]].append(x["pnl"])
+        gs = list(grp.values())
+        c = ci(gs, lambda pick: statistics.mean([v for g in pick for v in g]))
+        tr.sort(key=lambda x: x["t"])
+        h = len(tr) // 2
+        m1 = statistics.mean([x["pnl"] for x in tr[:h]]) if h else 0.0
+        m2 = statistics.mean([x["pnl"] for x in tr[h:]])
+        mean = statistics.mean([x["pnl"] for x in tr])
+        print(f"  {hold:>4}s: {len(tr)} trades on {len(gs)} games | mean {mean:+.4f}/share"
+              + (f" [{c[0]:+.4f}, {c[1]:+.4f}]" if c else "") + f" | win "
+              f"{sum(x['pnl'] > 0 for x in tr) / len(tr):.0%} | halves {m1:+.4f} / {m2:+.4f}")
+        if hold == 300:
+            ok = len(tr) >= 300 and len(gs) >= 40 and c and c[0] > 0 and m1 > 0 and m2 > 0
+            print(f"  bar (300 s): >= 300 trades, >= 40 games, CI above 0, both halves > 0 -> "
+                  f"{'PASS' if ok else 'not passed'}")
+            if len(tr) >= 300 and mean <= 0:
+                print("  KILL: mean <= 0 after 300 trades")
+
+
 # --- lead-lag ------------------------------------------------------------
 def lead_lag(rows):
     """For pre-game gaps >= 2c, how much of the gap each venue closed by the
@@ -353,6 +410,8 @@ def main(argv=None):
                 print("  KILL: expectancy below -2c/share after 50 entries")
     print(f"  bar: >= 100 entries, >= 20 games, CI above 0, both halves > 0, "
           f"P(50% drawdown) < 10% -> {'PASS' if s2_pass else 'not passed'}")
+
+    s2b_report(rows)
 
     print("\nIN PLAY (displayed in-play prices are not fillable; cannot pass)")
     bl = sorted(best_net(live))

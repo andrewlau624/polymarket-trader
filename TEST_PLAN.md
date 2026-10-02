@@ -425,3 +425,22 @@ Then live trading starts at $100–200 per venue with these limits:
     - **KILL:** mean ≤ 0 after 300 trades.
     - **Before any money:** a live check that an order sent within ~1 s of the score
       change fills at the recorded ask. Polling every 2.5 s is not proof of fillability.
+
+- **2026-10-02, verdicts.**
+  - **T6 KILLED:** 1,813 trades on 196 matches, −0.0735/share [−0.0931, −0.0573].
+  - **T3 FAILED:** 442 trades, −0.8% per $ [−12.7%, +10.6%].
+
+- **2026-10-02, before any S2b data:** added **S2b, Kalshi leads, short hold on
+  Polymarket**.
+  - **Why:** on the droplet's first 1.15 days, when the pre-game mids differed by ≥ 2c,
+    Polymarket did 87% of the closing (8,349 gaps).
+  - **Data:** `xvenue_recorder.py` rows with t ≥ **1790927546** only.
+  - **Entry:** the S2 rule, Polymarket side only. Buy team X on Polymarket at the ask
+    when `ask + fee ≤ kalshi_mid(X) − 0.010`, with Kalshi's spread ≤ 0.03, pre-game.
+    One open trade per (game, team).
+  - **Exit:** sell into Polymarket's bid at the first observation of that game
+    ≥ 300 s later; a variant uses 1,800 s. Both taker fees are charged.
+  - **Bootstrap unit:** the game.
+  - **PASS:** at 300 s, ≥ 300 trades on ≥ 40 games, the 95% CI of mean P&L per trade
+    above 0, and both halves positive.
+  - **KILL:** mean ≤ 0 after 300 trades.
